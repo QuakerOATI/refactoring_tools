@@ -1,8 +1,11 @@
 import string
+import dataclasses
+from abc import ABC
+from __future__ import annotations
+from typing import List, Callable, Tuple, Literal, TypeVar, Union
 from collections import deque
 from contextlib import AbstractContextManager
 from functools import partial
-
 
 NUMERIC_TYPES = [
     "decimal",
@@ -18,6 +21,13 @@ NUMERIC_TYPES = [
     "binary",
     "percentage",
     "decimal_localized",
+]
+
+NONNUMERIC_TYPES = [
+    "string",
+    "repr",
+    "ascii",
+    "char",
 ]
 
 PERCENT_FORMAT_OPTS = {
@@ -99,10 +109,48 @@ BRACE_FORMAT_OPTS = {
 
 
 class ExceptionStack(AbstractContextManager):
-    def __init__(self, tasks=[]):
-        self.tasks = deque(tasks)
+    """Accumulate exceptions over a series of tasks.
 
-    def join(self):
+    Methods:
+        join: execute tasks and return results, aggregating any exceptions into
+            an ExceptionGroup
+        map: extend the list of tasks by mapping a function over a list of
+            argument tuples
+    """
+
+    def __init__(self, tasks: List[Callable[[], Any]] = []) -> None:
+        """ExceptionGroup constructor.
+
+        Args:
+            tasks: list of callables to be executed (additional tasks can be
+                added after initialization)
+        """
+        self.tasks = deque(tasks)
+        self.exceptions = []
+
+    def join(self) -> List[Any]:
+        """Execute pending tasks and return the list of return values.
+
+        Tasks that fail to return correspond to values of None in the list of
+        results.
+
+        Exceptions thrown by individual tasks are caught, annotated with the
+        index of self.tasks at which they were raised, and appended to
+        self.exceptions.
+
+        This method is wrapped by ExceptionStack.__enter__, allowing it to be
+        used as a context manager.  For example:
+
+        >>> with ExceptionStack(tasks) as results:
+        >>>     # do something with results
+        >>>     # all tasks are guaranteed to execute
+
+        When using an ExceptionStack this way, self.exceptions is aggregated
+        into an ExceptionGroup and reraised upon exiting the context.
+
+        Returns:
+            list of values returned by tasks in self.tasks
+        """
         results = []
         while self.tasks:
             task = self.tasks.popleft()
@@ -113,136 +161,155 @@ class ExceptionStack(AbstractContextManager):
                     f"Exception occurred in task index {len(results)} of Exception Stack"
                 )
                 self.exceptions.append(e)
+                results.append(None)
         return results
 
-    def map(self, func, args):
+    def resolve(self) -> None:
+        """Resolve exceptions by combining into an ExceptionGroup and raising.
+
+        This method is called by ExceptionStack.__exit__, so it is not
+        necessary to call it again when using ExceptionStack as a context
+        manager.
+
+        Raises:
+            ExceptionGroup
+        """
+        if self.exceptions:
+            raise ExceptionGroup("Exception stack terminated with errors",
+                                 self.exceptions) from None
+
+    def map(self, func: Callable[[...], Any],
+            args: List[Tuple[Any]]) -> ExceptionStack:
+        """Add tasks to self by mapping a function over a list of tuples.
+
+        Args:
+            func: function to be mapped
+            args: list of tuples to which func should be applied
+        Returns:
+            self (to allow method-chaining)
+        """
         self.tasks.extend([partial(func, *a) for a in args])
         return self
 
     def __enter__(self):
-        self.exceptions = []
         return self.join()
 
     def __exit__(self, exc_type, exc_val, traceback):
+        # If an exceptions is raised outside of individual tasks, append it here
         if isinstance(exc_val, Exception):
             self.exceptions.append(exc_val)
-        if self.exceptions:
-            raise ExceptionGroup(
-                "Exception stack terminated with errors", self.exceptions
-            ) from None
+        self.resolve()
 
 
-class FormatSpecifier:
-    """
-    %  --> [align]["0"]["#"][width]["." precision]type
-    {} --> [[fill]align][sign]["z"]["#"]["0"][width][grouping]["." precision][type]
-    """
+@dataclasses.dataclass
+class NumericFormat:
+    alternate_form: bool = False
+    pad_zeros: bool = False
+    float_positive_zero: Optional[bool] = False
+    group: Optional[Literal["comma", "underscore"]] = None
+    sign: Literal["sign_positive", "nosign_positive",
+                  "align_positive"] = "nosign_positive"
+    justifySign: Optional[bool] = None
+    precision: Optional[int] = None
 
-    class FormatSpecifierError(Exception):
-        pass
 
-    def __init__(
-        self,
-        align=None,
-        fill=None,
-        numeric_flags=None,
-        width=None,
-        precision=None,
-        display_type="string",
-        exc_mode="warn",
-    ):
-        self.align = "" if align is None else str(align)
-        # TODO: Add warning for multicaracter fill
-        self.fill = "" if fill is None else str(fill)
-        self.numeric_flags = "" if numeric_flags is None else numeric_flags
-        self.width = self._get_integer_as_string(width)
-        self.precision = self._get_integer_as_string(precision)
-        self.display_type = "" if display_type is None else display_type
-        if self.precision:
-            self.precision = f".{self.precision}"
+@dataclasses.dataclass
+class AlignmentFormat:
+    justify: Literal["left", "right", "center"] = "right"
+    fill: Optional[str] = None
+    width: Optional[int] = None
 
-    def _get_integer_as_string(self, obj):
-        if obj is None or obj == "":
-            return ""
+
+NumericType: TypeVar = Literal[*NUMERIC_TYPES]
+NonnumericType: TypeVar = Literal[*NONNUMERIC_TYPES]
+TypeFormat: TypeVar = Union[NumericType, NonnumericType]
+
+
+class FormatSpecifier(ABC):
+
+    def __init__(self, alignmentFormat: AlignmentFormat,
+                 numericFormat: NumericFormat, typeFormat: TypeFormat) -> None:
+        self.alignmentFormat = alignmentFormat
+        self.numericFormat = numericFormat
+        self.typeFormat = typeFormat
+        self.validate()
+
+    def validate_typeFormat(self):
+        if self.typeFormat in NONNUMERIC_TYPES:
+            assert self.numericFormat == NumericFormat(
+            ), "Numeric format options cannot be specified for non-numeric types"
         else:
-            try:
-                return str(int(obj))
-            except Exception as e:
-                raise self.FormatSpecifierError(
-                    f"Failed to convert object to integer: {obj}"
-                ) from e
+            assert self.numericFormat in NUMERIC_TYPES, f"Invalid type format '{self.numericFormat}'"
 
-    def to_percent(self):
-        get_percent_opt = partial(self._get_opt_specifier, "%")
-        with ExceptionStack().map(
-            get_percent_opt,
-            [("align", self.align), ("type", self.display_type)],
-        ).map(
-            get_percent_opt,
-            [("numeric_flags", f) for f in self.numeric_flags],
-        ) as (
-            align,
-            display_type,
-            *numeric_flags,
-        ):
-            if self.fill:
-                raise self.FormatSpecifierError(
-                    "Cannot specify fill character in printf-style template string"
-                )
-            fmt = f"%{align}{''.join(numeric_flags)}{self.width}{self.precision}{display_type}"
-            self._test("%", fmt)
-            return fmt
+    def validate(self) -> None:
+        validation_methods = [
+            attr for name in dir(self) if callable(
+                attr := getattr(self, name)) and name.startswith("validate_")
+        ]
+        with ExceptionStack(validation_methods):
+            pass
 
-    def to_brace(self):
-        get_brace_opt = partial(self._get_opt_specifier, "{}")
-        with ExceptionStack().map(
-            get_brace_opt,
-            [("align", self.align), ("type", self.display_type)],
-        ).map(
-            get_brace_opt,
-            [("numeric_flags", f) for f in self.numeric_flags],
-        ) as (
-            align,
-            display_type,
-            *numeric_flags,
-        ):
-            if self.fill and not align:
-                raise self.FormatSpecifierError(
-                    "Fill character can only be defined with a valid alignment specifier"
-                )
-            convert, display = display_type
-            fmt = f":{self.fill[0]}{align}{''.join(numeric_flags)}{self.width}{self.precision}{display}"
-            if convert:
-                fmt = f"!{convert}{fmt}"
-            fmt = "{" + fmt + "}"
-            self._test("{}", fmt)
-            return fmt
+    @abstractmethod
+    def __repr__(self):
+        ...
 
-    def _get_opt_specifier(self, fmt_type, opt_name, spec_name):
-        if fmt_type == "{}":
-            table = BRACE_FORMAT_OPTS
-        elif fmt_type == "%":
-            table = PERCENT_FORMAT_OPTS
-        else:
-            raise self.FormatSpecifierError(
-                f"Unsupported format specifier type {fmt_type}"
-            )
-        try:
-            table = table[opt_name]
-        except KeyError:
-            raise self.FormatSpecifierError(
-                f"Invalid option '{opt_name}' for format specifier type '{fmt_type}'"
-            ) from None
-        try:
-            return table[spec_name]
-        except KeyError:
-            raise self.FormatSpecifierError(
-                f"Invalid option specifier '{spec_name}' for option '{opt_name}', format specifier type '{fmt_type}'"
-            ) from None
 
-    @staticmethod
-    def get_brace_fields(s):
-        return list(string._string.formatter_parser(s))
+class PercentFormatSpecifier(FormatSpecifier):
 
-    def _test(self, fmt_type, fmt):
-        pass
+    JUSTIFY = {
+        "left": "-",
+        "right": "",
+    }
+
+    SIGN = {"sign_positive": "+", "nosign_positive": "", "align_positive": " "}
+
+    def __repr__(self):
+        fmt = self.SIGN[self.numericFormat.sign]
+        fmt += self.JUSTIFY[self.alignmentFormat.justify]
+        if self.numericFormat.pad_zeros:
+            fmt += "0"
+        if self.numericFormat.alternate_form:
+            fmt += "#"
+        if self.alignmentFormat.width:
+            fmt += str(self.alignmentFormat.width)
+        if self.numericFormat.precision:
+            fmt += f".{self.numericFormat.precision}"
+        fmt += self.typeFormat
+        return f"%{fmt}"
+
+
+class BraceFormatSpecifier(FormatSpecifier):
+
+    JUSTIFY = {
+        "left": "<",
+        "right": ">",
+        "center": "^",
+    }
+
+    SIGN = {
+        "sign_positive": "+",
+        "nosign_positive": "-",
+        "align_positive": " ",
+    }
+
+    GROUP = {"comma": ",", "underscore": "_"}
+
+    def __repr__(self):
+        fmt += self.SIGN[self.numericFormat.sign]
+        fmt = self.JUSTIFY[self.alignmentFormat.justify]
+        if self.alignmentFormat.fill:
+            fmt = str(fill)[0] + fmt
+        if self.numericFormat.float_positive_zero:
+            fmt += "z"
+        if self.numericFormat.alternate_form:
+            fmt += "#"
+        if self.numericFormat.pad_zeros:
+            fmt += "0"
+        if self.alignmentFormat.width:
+            fmt += str(self.alignmentFormat.width)
+        if self.numericFormat.group:
+            fmt += self.GROUP[self.numericFormat.group]
+        if self.numericFormat.precision:
+            fmt += f".{self.numericFormat.precision}"
+        fmt += self.typeFormat
+        return "{" + fmt + "}"
