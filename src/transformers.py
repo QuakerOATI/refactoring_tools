@@ -1,7 +1,9 @@
 import libcst as cst
-import libcst.codemod as mod
 import libcst.matchers as m
-from typing import Optional
+from libcst.helpers import get_full_name_for_node
+from .matchers import EprintStatement, TemplateString
+from .metadata import IsCaughtException
+from typing import List
 
 """
 1. Rename eprint --> logger method
@@ -44,36 +46,67 @@ Ideas:
 """
 
 
-LOGLEVELS = ["DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL", "FATAL"]
-
-
-def LogLevelLiteral():
-    """Factory for use with libcst.matchers functions and decorators"""
-    # Note that SimpleString.value includes the quotes, so we have to check value[1:-1]
-    return m.SimpleString(value=m.MatchIfTrue(lambda value: value[1:-1] in LOGLEVELS))
-
-
-def TemplateString():
-    """Factory for use with libcst.matchers functions and decorators"""
-    return m.Call(func=m.Attribute(value=m.SimpleString(), attr=m.Name(value="format")))
-
-
-def EprintStatement():
-    """Factory for use with libcst.matchers functions and decorators"""
-    return m.Call(
-        func=m.Name(value="eprint"),
-        args=m.MatchIfTrue(
-            lambda args: args and m.matches(args[-1].value, LogLevelLiteral())
+def ExceptionHandlerLoggingStatement(
+    function_context: List[str], logger_name="logger"
+) -> cst.Call:
+    return cst.Call(
+        func=cst.Attribute(
+            val=cst.Name(logger_name),
+            attr="exception",
         ),
+        args=[
+            cst.Arg(value=cst.SimpleString(f"Error in {function_context[0]}")),
+            cst.Arg(keyword="exc_info", value=cst.Name(value="True")),
+        ],
     )
 
 
-class ReplaceEprintWithLogger(m.MatcherDecoratableTransformer):
+class FunctionContextMixin(m.MatcherDecoratableTransformer):
+    def __init__(self) -> None:
+        self.function_context = []
+
+    @m.visit(m.FunctionDef())
+    def push_function_onto_context(self, node: cst.FunctionDef) -> None:
+        self.function_context.append(get_full_name_for_node(node.name.value))
+
+    @m.leave(m.FunctionDef())
+    def pop_function_context(
+        self, original: cst.FunctionDef, updated: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        self.function_context.pop()
+        return updated
+
+
+class ReplaceEprintWithLogger(FunctionContextMixin):
+    METADATA_DEPENDENCIES = (IsCaughtException,)
+
+    def __init__(self, logger_name="logger") -> None:
+        super().__init__()
+        self.excs_in_eprint = []
+        self.logger_name = logger_name
+
+    @m.visit(EprintStatement())
+    def enter_eprint_context(self, node: cst.Call) -> None:
+        self.excs_in_eprint.append(0)
+
+    @m.call_if_inside(EprintStatement())
+    @m.visit(m.Arg(m.MatchMetadata(IsCaughtException, True)))
+    def set_exc_context(self, node: cst.Arg) -> None:
+        self.excs_in_eprint[-1] += 1
+
     @m.leave(EprintStatement())
-    def change_eprint_to_logger(self, original: cst.Call, updated: cst.Call):
+    def change_eprint_to_logger(
+        self, original: cst.Call, updated: cst.Call
+    ) -> cst.Call:
         fmt = updated.args[0].value
         method = updated.args[-1].value.value[1:-1]
         args = updated.args[1:-1]
+
+        if self.excs_in_eprint.pop() > 0:
+            return ExceptionHandlerLoggingStatement(
+                self.function_context, self.logger_name
+            )
+
         if m.matches(fmt, m.SimpleString()):
             fmt = fmt.value
         elif m.matches(fmt, TemplateString()):
@@ -81,6 +114,7 @@ class ReplaceEprintWithLogger(m.MatcherDecoratableTransformer):
             fmt = fmt.func.value.value.replace("{}", "%s")
         else:
             raise ValueError(f"Unknown format for first eprint argument: {fmt}")
+
         return updated.with_changes(
             func=cst.Attribute(
                 value=cst.Name(value="logger"),
