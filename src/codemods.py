@@ -19,30 +19,45 @@ class AddGlobalStatement(mod.ContextAwareTransformer):
     by the current module.
     """
 
-    def _get_statement_globals(self, statement: str) -> Tuple[cst.Statement, Set[str]]:
+    CONTEXT_KEY = "AddGlobalStatement"
+
+    @staticmethod
+    def _get_statements_from_context(context: mod.CodemodContext) -> List[str]:
+        return context.scratch.get(AddGlobalStatement.CONTEXT_KEY, [])
+
+    def _get_statement_globals(self, statement: str) -> Set[str]:
         module = cst.parse_module(statement)
         visitor = mod.visitors.GatherGlobalNamesVisitor(
             mod.CodemodContext(wrapper=meta.MetadataWrapper(module))
         )
         module.visit(visitor)
-        return cst.parse_statement(statement), visitor.global_names
+        return visitor.global_names
 
-    def __init__(self, context: mod.CodemodContext, statement_code: str):
+    @staticmethod
+    def _check_scope(statement: str, global_names: List[str]) -> None:
+        statement_globals = self._get_statement_globals(statement)
+        if not statement_globals.issubset(self._global_names):
+            self.warn("Statement-globals are not defined or imported in module")
+
+    def _get_module_global_names(self) -> Set[str]:
+        visitor = mod.visitors.GatherGlobalNamesVisitor(self.context)
+        self.context.module.visit(visitor)
+        return visitor.global_names
+
+    def _split_module_with_empty_line(
+        self, node: cst.Module, updated_node: cst.Module
+    ) -> Tuple[List[Statement], List[Statement]]:
+        visitor = mod.visitors.AddImportsVisitor(self.context)
+        node.visit(visitor)
+        prelude, postlude = visitor._split_module(node, updated_node)
+        return prelude, visitor._insert_empty_line(postlude)
+
+    def __init__(self, context: mod.CodemodContext, statements: List[str] = []):
         super().__init__(context)
-        self._global_names_visitor = mod.visitors.GatherGlobalNamesVisitor(self.context)
-        self._imports_visitor = mod.visitors.AddImportsVisitor(self.context)
-        context.module.visit(self._global_names_visitor).visit(self._imports_visitor)
-
-        self._statement, self._statement_globals = self._get_statement_globals(
-            statement_code
-        )
-
-        if not self._statement_globals.issubset(
-            self._global_names_visitor.global_names
-        ):
-            self.warn(
-                f"Statement-globals are not defined or imported in module: {self._statement_globals.difference(self._global_names_visitor.global_names)}"
-            )
+        self._statements = [*self._get_statements_from_context(context), *statements]
+        self._global_names = self._get_module_global_names()
+        for s in self._statements:
+            self._check_scope(s)
 
     def leave_Module(self, original: cst.Module, updated: cst.Module) -> cst.Module:
         """Insert statement after all imports and before all others.
