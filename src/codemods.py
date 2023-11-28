@@ -1,4 +1,3 @@
-# from libcst.codemod import ContextAwareTransformer, SkipFile, CodemodTest
 import libcst as cst
 import argparse
 
@@ -104,15 +103,7 @@ class RemoveEprintDefAndImport(mod.VisitorBasedCodemodCommand):
         return cst.RemoveFromParent()
 
     @m.leave(
-        m.MatchOr(
-            m.ImportAlias(
-                name=m.MatchOr(
-                    m.Name("eprint"),
-                    m.Attribute(attr=m.Name("eprint")),
-                )
-            ),
-            m.ImportAlias(m.Name("eprint")),
-        )
+        m.ImportAlias(name=(m.Name("eprint") | m.Attribute(attr=m.Name("eprint"))))
     )
     def remove_eprint_import(
         self, original: cst.ImportAlias, updated: cst.ImportAlias

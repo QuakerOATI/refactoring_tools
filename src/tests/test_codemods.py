@@ -72,3 +72,32 @@ class TestReplaceEprintWithLogger(CodemodTest):
         ).strip()
 
         self.assertCodemod(before, after, [self.logger_name])
+
+
+class TestRemoveEprintDefAndImports(CodemodTest):
+    TRANSFORM = RemoveEprintDefAndImport
+
+    @classmethod
+    def setUpClass(cls):
+        cls.eprint_def = """
+            def eprint(msg, file, level):
+                print("{}::{}::{}".format(level, file, msg))
+            """
+
+    def test_simple_import(self) -> None:
+        before = dedent(
+            """
+            import funcs.eprint as printe
+
+            printe("hi there")
+            """
+        ).strip()
+
+        after = dedent(
+            """
+
+            printe("hi there")
+            """
+        ).strip()
+
+        self.assertCodemod(before, after)
