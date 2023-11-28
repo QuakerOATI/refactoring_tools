@@ -1,4 +1,6 @@
 import libcst.matchers as m
+import libcst as cst
+from typing import List
 
 
 LOGLEVELS = ["DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL", "FATAL"]
@@ -22,4 +24,21 @@ def EprintStatement():
         args=m.MatchIfTrue(
             lambda args: args and m.matches(args[-1].value, LogLevelLiteral())
         ),
+    )
+
+
+def ExceptionHandlerLoggingStatement(
+    function_context: List[str], logger_name="logger"
+) -> cst.Call:
+    """Factory for a libcst node representing a logger.exception call."""
+
+    return cst.Call(
+        func=cst.Attribute(
+            val=cst.Name(logger_name),
+            attr="exception",
+        ),
+        args=[
+            cst.Arg(value=cst.SimpleString(f"Error in {function_context[0]}")),
+            cst.Arg(keyword="exc_info", value=cst.Name(value="True")),
+        ],
     )
