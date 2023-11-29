@@ -1,93 +1,9 @@
-import libcst as cst
-import argparse
-
-from typing import Union, Tuple, TypeVar, List, Set
-from ast import literal_eval
-from libcst import matchers as m
-from libcst import codemod as mod
-
-from .matchers import (
-    LogFunctionCall,
-    TemplateString,
-)
-
-Statement: TypeVar = Union[cst.SimpleStatementLine, cst.BaseCompoundStatement]
+from .imports import *
+from .codemod_base import CodemodBase
+from ..utils.matchers import TemplateString, LogFunctionCall
 
 
-class AddGlobalStatements(mod.VisitorBasedCodemodCommand):
-    """Add statements to a module immediately after the imports block.
-
-    This can be done by using either :obj:`libcst.codemod.transform_module` or
-    the static method :obj:`AddGLobalStatement.add_global_statement`
-    defined on this class, which schedules the addition in a way similar to the
-    way :obj:`libcst.codemod.visitors.AddImportsVisitor.add_needed_import`
-    works.
-    """
-
-    CONTEXT_KEY = "AddGlobalStatement"
-    DESCRIPTION = "Add"
-
-    @staticmethod
-    def add_global_statement(context: mod.CodemodContext, statement: str):
-        """Schedule a global statement to be added in a future invocation.
-
-        Based on the implementation of
-        :obj:`libcst.codemod.visitors.AddImportsVisitor.add_needed_import`.
-        """
-        statements = AddGlobalStatements._get_statements_from_context(context)
-        statements.append(statement)
-        context.scratch[AddGlobalStatements.CONTEXT_KEY] = statements
-
-    @staticmethod
-    def _get_statements_from_context(context: mod.CodemodContext) -> List[str]:
-        return context.scratch.get(AddGlobalStatements.CONTEXT_KEY, [])
-
-    def _split_module_with_empty_line(
-        self, node: cst.Module, updated_node: cst.Module
-    ) -> Tuple[List[Statement], List[Statement]]:
-        visitor = mod.visitors.AddImportsVisitor(self.context)
-        node.visit(visitor)
-        before_add, after_add, after_imports = visitor._split_module(node, updated_node)
-        postlude = visitor._insert_empty_line(after_imports)
-        return before_add + after_add, postlude
-
-    def _ensure_blank_first_line(self, statement: Statement) -> Statement:
-        if not statement.leading_lines:
-            return statement.with_changes(leading_lines=(cst.EmptyLine(),))
-        elif statement.leading_lines[0].comment is None:
-            return statement
-        else:
-            return statement.with_changes(
-                leading_lines=(cst.EmptyLine(), *statement.leading_lines)
-            )
-
-    def __init__(self, context: mod.CodemodContext, statements: List[str] = []):
-        super().__init__(context)
-        self._statements = [*self._get_statements_from_context(context), *statements]
-
-    def leave_Module(self, original: cst.Module, updated: cst.Module) -> cst.Module:
-        """Insert statements after all imports and before all others.
-
-        NOTE: The implementation relies on the helper methods
-        :obj:`libcst.codemod.visitors.AddImportsVisitor._split_module` and
-        :obj:`libcst.codemod.visitors.AddImportsVisitor._insert_empty_line`,
-        which are not guaranteed to be stable since they are nonpublic.
-        """
-        if not self._statements:
-            return updated
-        prelude, postlude = self._split_module_with_empty_line(original, updated)
-        statements = [cst.parse_statement(s) for s in self._statements]
-        return updated.with_changes(
-            body=(
-                *prelude,
-                self._ensure_blank_first_line(statements[0]),
-                *statements[1:],
-                *postlude,
-            )
-        )
-
-
-class RemoveLogfuncDefAndImports(mod.VisitorBasedCodemodCommand):
+class RemoveLogfuncDefAndImports(CodemodBase):
     """Remove defs and imports of a specified function.
 
     The function to be removed is assumed to be a custom logging function.
@@ -178,7 +94,7 @@ class RemoveLogfuncDefAndImports(mod.VisitorBasedCodemodCommand):
             return updated
 
 
-class ReplaceFuncWithLoggerCommand(mod.VisitorBasedCodemodCommand):
+class ReplaceFuncWithLoggerCommand(CodemodBase):
     """Replace calls to a specified function `func` with logger calls.
 
     This codemod was created to remove the function "eprint" from the WSF
@@ -282,28 +198,30 @@ class ReplaceFuncWithLoggerCommand(mod.VisitorBasedCodemodCommand):
     def enter_logfunc_context(self, node: cst.Call) -> None:
         if node.func.value in self._logfuncs:
             self._excs_in_logfunc_call.append(0)
-        # If there are any additional args other than file and/or an
-        # exception, raise warning
-        # The file args can be safely ignored, since we can include that
-        # information by configuring the root logger's formatter
-        for a in node.args[1:-1]:
-            if not m.matches(
-                a, m.Arg(value=m.Name("file") | m.Name("File"))
-            ) and not m.matches(
-                a,
-                m.Arg(
-                    value=m.Name(
-                        value=m.MatchIfTrue(
-                            lambda value: value in self._handled_exceptions
+            mod.visitors.AddImportsVisitor.add_needed_import(self.context, "logging")
+
+            # If there are any additional args other than file and/or an
+            # exception, raise warning
+            # The file args can be safely ignored, since we can include that
+            # information by configuring the root logger's formatter
+            for a in node.args[1:-1]:
+                if not m.matches(
+                    a, m.Arg(value=m.Name("file") | m.Name("File"))
+                ) and not m.matches(
+                    a,
+                    m.Arg(
+                        value=m.Name(
+                            value=m.MatchIfTrue(
+                                lambda value: value in self._handled_exceptions
+                            )
                         )
+                    ),
+                ):
+                    pos = self.get_metadata(cst.metadata.PositionProvider, node).start
+                    self.warn(
+                        f"Unrecognized arguments in logfunc call: line {pos.line}, column {pos.column}"
                     )
-                ),
-            ):
-                pos = self.get_metadata(cst.metadata.PositionProvider, node).start
-                self.warn(
-                    f"Unrecognized arguments in logfunc call: line {pos.line}, column {pos.column}"
-                )
-                break
+                    break
 
     @m.call_if_inside(LogFunctionCall())
     @m.visit(m.Arg(value=m.Name()))
@@ -385,51 +303,3 @@ class ReplaceFuncWithLoggerCommand(mod.VisitorBasedCodemodCommand):
                 *args,
             ],
         )
-
-
-class ReplaceStringCommand(mod.VisitorBasedCodemodCommand):
-    """Taken from https://libcst.readthedocs.io/en/latest/codemods_tutorial.html."""
-
-    DESCRIPTION: str = "Convert raw strings to imported constants."
-
-    @staticmethod
-    def add_args(parser: argparse.ArgumentParser) -> None:
-        parser.add_argument(
-            "--string",
-            dest="string",
-            metavar="STRING",
-            help="String to replace",
-            type=str,
-            required=True,
-        )
-        parser.add_argument(
-            "--const",
-            dest="const",
-            metavar="CONST",
-            help="Name of constant to import and use to replace STRING",
-            type=str,
-            required=True,
-        )
-        parser.add_argument(
-            "--module",
-            dest="module",
-            metavar="MODULE",
-            help="Module to import CONST from",
-            type=str,
-            required=True,
-        )
-
-    def __init__(self, context: mod.CodemodContext, string: str, const: str) -> None:
-        super().__init__(context)
-        self.string = string
-        self.const = const
-
-    def leave_SimpleString(
-        self, original: cst.SimpleString, updated: cst.SimpleString
-    ) -> Union[cst.SimpleString, cst.Name]:
-        if literal_eval(updated.value) == self.string:
-            mod.AddImportsVisitor.add_needed_import(
-                self.context, self.module, self.const
-            )
-            return cst.Name(self.const)
-        return updated

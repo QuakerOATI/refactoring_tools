@@ -1,47 +1,4 @@
-import libcst as cst
-from unittest.mock import Mock
-from libcst.codemod import CodemodTest, CodemodContext
-from libcst.metadata import MetadataWrapper
-from ..codemods import (
-    AddGlobalStatements,
-    ReplaceFuncWithLoggerCommand,
-    RemoveLogfuncDefAndImports,
-)
-from textwrap import dedent
-
-
-class TestAddGlobalStatement(CodemodTest):
-    TRANSFORM = AddGlobalStatements
-
-    @classmethod
-    def setUpClass(cls):
-        cls.imports = dedent(
-            """
-            import json
-            import sys, os
-            import logging
-
-            from typing import List, Union
-            from libcst import codemod as mod
-            """
-        ).strip()
-
-        cls.function_def = dedent(
-            """
-            def foo(bar):
-                print(bar)
-            """
-        ).strip()
-
-        cls.logger_declaration = "logger = logging.getLogger(__name__)"
-        cls.print_statement = "print('hi there')"
-
-    def test_function_def(self) -> None:
-        before = "\n".join([self.imports, "", self.function_def])
-        after = "\n".join(
-            [self.imports, "", self.logger_declaration, "", self.function_def]
-        )
-        self.assertCodemod(before, after, [self.logger_declaration])
+from . import *
 
 
 class TestReplaceFuncWithLoggerCommand(CodemodTest):
@@ -49,11 +6,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
 
     @classmethod
     def setUpClass(cls):
-        cls.preamble = """
-            from Baz import baz as qux
-
-            bar = "bar"
-            """
+        cls.preamble = """from Baz import baz as qux"""
 
         cls.fmt = '"{} is {} is {}"'
         cls.error_fmt = '"Exception: {}"'
@@ -84,6 +37,8 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         after = dedent(
             f"""
             {self.preamble}
+            import logging
+
             {self.logger_name}.info({self.percent_fmt}, "foo", bar, qux)
             """
         ).strip()
@@ -101,6 +56,8 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
 
         after = dedent(
             f"""
+            import logging
+
             {self.logger_name}.info({self.percent_fmt}, "foo", bar, qux)
             """
         ).strip()
@@ -129,6 +86,8 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         after = dedent(
             f"""
             {self.preamble}
+            import logging
+
             try:
                 raise ValueError("oops")
             except ValueError as e:
@@ -156,6 +115,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         after = dedent(
             f"""
             {self.preamble}
+            import logging
 
             def foo(bar: int) -> int:
                 try:
@@ -168,84 +128,3 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         self.assertCodemod(
             before, after, self.logger_name, context_override=self.context
         )
-
-
-class TestRemoveLogFuncDefAndImports(CodemodTest):
-    TRANSFORM = RemoveLogfuncDefAndImports
-
-    @classmethod
-    def setUpClass(cls):
-        cls.eprint_def = """
-            def eprint(msg, file, level):
-                print("{}::{}::{}".format(level, file, msg))
-            """
-
-    def test_simple_import(self) -> None:
-        before = dedent(
-            """
-            import funcs.eprint as printe
-
-            printe("hi there")
-            """
-        ).strip()
-
-        after = dedent(
-            """
-
-            printe("hi there")
-            """
-        ).strip()
-
-        self.assertCodemod(before, after)
-
-    def test_import_group(self) -> None:
-        before = dedent(
-            """
-            import fprint, gprint, eprint
-            eprint("floop")
-            """
-        ).strip()
-
-        after = dedent(
-            """
-            import fprint, gprint
-            eprint("floop")
-            """
-        ).strip()
-
-        self.assertCodemod(before, after)
-
-    def test_importFrom_group(self) -> None:
-        before = dedent(
-            """
-            from module import fprint, gprint, eprint
-            eprint("floop")
-            """
-        ).strip()
-
-        after = dedent(
-            """
-            from module import fprint, gprint
-            eprint("floop")
-            """
-        ).strip()
-
-        self.assertCodemod(before, after)
-
-    def test_logfunc_def(self) -> None:
-        before = dedent(
-            f"""
-            {self.eprint_def}
-
-            eprint("foobar", __file__, "DEBUG")
-            """
-        ).strip()
-
-        after = dedent(
-            f"""
-
-            eprint("foobar", __file__, "DEBUG")
-            """
-        )
-
-        self.assertCodemod(before, after, expected_warnings=[])
