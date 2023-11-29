@@ -96,18 +96,26 @@ class RemoveEprintDefAndImport(mod.VisitorBasedCodemodCommand):
     def add_args(parser: argparse.ArgumentParser) -> None:
         pass
 
-    @m.leave(m.Import(names=[m.AtMostN(n=0)]))
-    def remove_empty_import(
+    def leave_Import(
         self, original: cst.Import, updated: cst.Import
     ) -> Union[cst.Import, cst.RemovalSentinel]:
-        return cst.RemoveFromParent()
+        """Remove ImportAliases for eprint from arbitrary modules.
 
-    @m.leave(
-        m.ImportAlias(name=(m.Name("eprint") | m.Attribute(attr=m.Name("eprint"))))
-    )
-    def remove_eprint_import(
-        self, original: cst.ImportAlias, updated: cst.ImportAlias
-    ) -> Union[cst.ImportAlias, cst.RemovalSentinel]:
+        The implementation borrows heavily from
+        :obj:`libcst.codemod.visitor.RemoveImportsVisitor.leave_Import`.
+        """
+        keep = []
+        for node in original.names:
+            if node.evaluated_name.split(".")[-1] != "eprint":
+                keep.append(node)
+        if keep:
+            # If last import is removed, make sure there's no trailing comma
+            if keep[-1] != original.names[-1]:
+                keep = [
+                    *keep[:-1],
+                    keep[-1].with_changes(comma=cst.MaybeSentinel.DEFAULT),
+                ]
+            return updated.with_changes(names=keep)
         return cst.RemoveFromParent()
 
     @m.leave(m.FunctionDef(name=m.Name("eprint")))
@@ -119,6 +127,19 @@ class RemoveEprintDefAndImport(mod.VisitorBasedCodemodCommand):
 
 class ReplaceEprintWithLoggerCommand(mod.VisitorBasedCodemodCommand):
     """Replace all eprint calls with logger calls.
+
+    Assumptions:
+        - the log message is the first argument to eprint
+        - the loglevel is the last argument to eprint
+        - the only other arguments are limited to
+            1. a possible named exception, if the call is inside an `except`
+                block, and
+            2. a possible arguement namd `file` or `File`.
+
+    If the first argument to eprint has the form `msg.format(*args) for some
+    template message msg, then the replacement will be
+    `logger.<loglevel>(pmsg, *args)`, where `pmsg` is the same as `msg` but
+    all placeholders {} replaed by old-style %s placeholders.
 
     If the eprint call occurs inside an `except` block and at least one of its
     arguments is a caught exception, it will be replaced with a call to
@@ -195,6 +216,8 @@ class ReplaceEprintWithLoggerCommand(mod.VisitorBasedCodemodCommand):
     def change_eprint_to_logger(
         self, original: cst.Call, updated: cst.Call
     ) -> cst.Call:
+        """Remove and replace eprint :obj:`libcst.Call` nodes."""
+
         fmt = updated.args[0].value
         method = updated.args[-1].value.value[1:-1]
         args = updated.args[1:-1]
