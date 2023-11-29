@@ -113,6 +113,35 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             before, after, self.logger_name, context_override=self.context
         )
 
+    def test_exception_with_function_scope(self) -> None:
+        before = dedent(
+            f"""
+            {self.preamble}
+
+            def foo(bar: int) -> int:
+                try:
+                    return 1/bar
+                except ZeroDivisionError as e:
+                    eprint({self.error_fmt}.format(e), __file__, "INFO")
+            """
+        ).strip()
+
+        after = dedent(
+            f"""
+            {self.preamble}
+
+            def foo(bar: int) -> int:
+                try:
+                    return 1/bar
+                except ZeroDivisionError as e:
+                    logger.exception("Error in function: foo", exc_info=True)
+            """
+        )
+
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
+        )
+
 
 class TestRemoveLogFuncDefAndImports(CodemodTest):
     TRANSFORM = RemoveLogfuncDefAndImports
