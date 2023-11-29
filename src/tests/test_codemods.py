@@ -101,3 +101,37 @@ class TestRemoveEprintDefAndImports(CodemodTest):
         ).strip()
 
         self.assertCodemod(before, after)
+
+    def test_import_group(self) -> None:
+        before = dedent(
+            """
+            import fprint, gprint, eprint
+            eprint("floop")
+            """
+        ).strip()
+
+        after = dedent(
+            """
+            import fprint, gprint
+            eprint("floop")
+            """
+        ).strip()
+
+        self.assertCodemod(before, after)
+
+    def test_importFrom_group(self) -> None:
+        before = dedent(
+            """
+            from module import fprint, gprint, eprint
+            eprint("floop")
+            """
+        ).strip()
+
+        after = dedent(
+            """
+            from module import fprint, gprint
+            eprint("floop")
+            """
+        ).strip()
+
+        self.assertCodemod(before, after)

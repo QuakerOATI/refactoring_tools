@@ -96,6 +96,22 @@ class RemoveEprintDefAndImport(mod.VisitorBasedCodemodCommand):
     def add_args(parser: argparse.ArgumentParser) -> None:
         pass
 
+    def _filter_import_aliases(
+        self, names: List[cst.ImportAlias]
+    ) -> List[cst.ImportAlias]:
+        keep = []
+        for node in names:
+            if node.evaluated_name.split(".")[-1] != "eprint":
+                keep.append(node)
+        if keep:
+            # If last import is removed, make sure there's no trailing comma
+            if keep[-1] != names[-1]:
+                keep = [
+                    *keep[:-1],
+                    keep[-1].with_changes(comma=cst.MaybeSentinel.DEFAULT),
+                ]
+        return keep
+
     def leave_Import(
         self, original: cst.Import, updated: cst.Import
     ) -> Union[cst.Import, cst.RemovalSentinel]:
@@ -104,19 +120,22 @@ class RemoveEprintDefAndImport(mod.VisitorBasedCodemodCommand):
         The implementation borrows heavily from
         :obj:`libcst.codemod.visitor.RemoveImportsVisitor.leave_Import`.
         """
-        keep = []
-        for node in original.names:
-            if node.evaluated_name.split(".")[-1] != "eprint":
-                keep.append(node)
+        keep = self._filter_import_aliases(updated.names)
         if keep:
-            # If last import is removed, make sure there's no trailing comma
-            if keep[-1] != original.names[-1]:
-                keep = [
-                    *keep[:-1],
-                    keep[-1].with_changes(comma=cst.MaybeSentinel.DEFAULT),
-                ]
             return updated.with_changes(names=keep)
-        return cst.RemoveFromParent()
+        else:
+            return cst.RemoveFromParent()
+
+    def leave_ImportFrom(
+        self, original: cst.ImportFrom, updated: cst.ImportFrom
+    ) -> Union[cst.ImportFrom, cst.RemovalSentinel]:
+        if isinstance(original.names, cst.ImportStar):
+            return updated
+        keep = self._filter_import_aliases(updated.names)
+        if keep:
+            return updated.with_changes(names=keep)
+        else:
+            return cst.RemoveFromParent()
 
     @m.leave(m.FunctionDef(name=m.Name("eprint")))
     def remove_func(
