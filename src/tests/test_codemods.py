@@ -1,8 +1,11 @@
-from libcst.codemod import CodemodTest
+import libcst as cst
+from unittest.mock import Mock
+from libcst.codemod import CodemodTest, CodemodContext
+from libcst.metadata import MetadataWrapper
 from ..codemods import (
     AddGlobalStatements,
-    ReplaceEprintWithLoggerCommand,
-    RemoveEprintDefAndImport,
+    ReplaceFuncWithLoggerCommand,
+    RemoveLogfuncDefAndImports,
 )
 from textwrap import dedent
 
@@ -41,8 +44,8 @@ class TestAddGlobalStatement(CodemodTest):
         self.assertCodemod(before, after, [self.logger_declaration])
 
 
-class TestReplaceEprintWithLogger(CodemodTest):
-    TRANSFORM = ReplaceEprintWithLoggerCommand
+class TestReplaceFuncWithLoggerCommand(CodemodTest):
+    TRANSFORM = ReplaceFuncWithLoggerCommand
 
     @classmethod
     def setUpClass(cls):
@@ -53,8 +56,18 @@ class TestReplaceEprintWithLogger(CodemodTest):
             """
 
         cls.fmt = '"{} is {} is {}"'
+        cls.error_fmt = '"Exception: {}"'
         cls.percent_fmt = '"%s is %s is %s"'
         cls.logger_name = "logger"
+        cls.context = CodemodContext(
+            scratch={cls.TRANSFORM.CONTEXT_KEY: {"eprint"}},
+        )
+
+    def get_scopes(self, before_code: str):
+        wrapper = cst.metadata.MetadataWrapper(
+            cst.parse_module(dedent(before_code).strip())
+        )
+        return wrapper.module, wrapper.resolve(cst.metadata.ScopeProvider)
 
     def test_INFO(self) -> None:
         before = dedent(
@@ -71,11 +84,38 @@ class TestReplaceEprintWithLogger(CodemodTest):
             """
         ).strip()
 
-        self.assertCodemod(before, after, [self.logger_name])
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
+        )
+
+    def test_exception(self) -> None:
+        before = dedent(
+            f"""
+            {self.preamble}
+            try:
+                raise ValueError("oops")
+            except ValueError as e:
+                eprint({self.error_fmt}.format(e), __file__, "INFO")
+            """
+        ).strip()
+
+        after = dedent(
+            f"""
+            {self.preamble}
+            try:
+                raise ValueError("oops")
+            except ValueError as e:
+                logger.exception("Error in function: UNKNOWN", exc_info=True)
+            """
+        )
+
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
+        )
 
 
-class TestRemoveEprintDefAndImports(CodemodTest):
-    TRANSFORM = RemoveEprintDefAndImport
+class TestRemoveLogFuncDefAndImports(CodemodTest):
+    TRANSFORM = RemoveLogfuncDefAndImports
 
     @classmethod
     def setUpClass(cls):
