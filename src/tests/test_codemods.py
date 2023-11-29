@@ -59,8 +59,12 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         cls.error_fmt = '"Exception: {}"'
         cls.percent_fmt = '"%s is %s is %s"'
         cls.logger_name = "logger"
-        cls.context = CodemodContext(
-            scratch={cls.TRANSFORM.CONTEXT_KEY: {"eprint"}},
+
+    def setUp(self) -> None:
+        # The context has to be refreshed for every test method, which is
+        # why this isn't in setUpClass
+        self.context = CodemodContext(
+            scratch={self.TRANSFORM.CONTEXT_KEY: {"eprint"}},
         )
 
     def get_scopes(self, before_code: str):
@@ -86,6 +90,29 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
 
         self.assertCodemod(
             before, after, self.logger_name, context_override=self.context
+        )
+
+    def test_malformed_logfunc_call(self) -> None:
+        before = dedent(
+            f"""
+            eprint({self.fmt}.format("foo", bar, qux), x, __file__, "INFO")
+            """
+        ).strip()
+
+        after = dedent(
+            f"""
+            {self.logger_name}.info({self.percent_fmt}, "foo", bar, qux)
+            """
+        ).strip()
+
+        self.assertCodemod(
+            before,
+            after,
+            self.logger_name,
+            context_override=self.context,
+            expected_warnings=[
+                f"Unrecognized arguments in logfunc call: line 1, column 0",
+            ],
         )
 
     def test_exception(self) -> None:
@@ -204,3 +231,21 @@ class TestRemoveLogFuncDefAndImports(CodemodTest):
         ).strip()
 
         self.assertCodemod(before, after)
+
+    def test_logfunc_def(self) -> None:
+        before = dedent(
+            f"""
+            {self.eprint_def}
+
+            eprint("foobar", __file__, "DEBUG")
+            """
+        ).strip()
+
+        after = dedent(
+            f"""
+
+            eprint("foobar", __file__, "DEBUG")
+            """
+        )
+
+        self.assertCodemod(before, after, expected_warnings=[])

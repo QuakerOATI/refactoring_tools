@@ -171,7 +171,7 @@ class RemoveLogfuncDefAndImports(mod.VisitorBasedCodemodCommand):
     def remove_logfunc(
         self, original: cst.FunctionDef, updated: cst.FunctionDef
     ) -> Union[cst.FunctionDef, cst.RemovalSentinel]:
-        if original.name.value in self.logfuncs:
+        if original.name.value == self._logfunc:
             self._remove_references(original)
             return cst.RemoveFromParent()
         else:
@@ -208,7 +208,10 @@ class ReplaceFuncWithLoggerCommand(mod.VisitorBasedCodemodCommand):
         "Replace calls to custom logging function with standard Python logging methods."
     )
     CONTEXT_KEY: str = "ReplaceFuncWithLoggerCommand"
-    METADATA_DEPENDENCIES = (cst.metadata.QualifiedNameProvider,)
+    METADATA_DEPENDENCIES = (
+        cst.metadata.QualifiedNameProvider,
+        cst.metadata.PositionProvider,
+    )
 
     class LogFuncReplaceException(Exception):
         pass
@@ -279,6 +282,28 @@ class ReplaceFuncWithLoggerCommand(mod.VisitorBasedCodemodCommand):
     def enter_logfunc_context(self, node: cst.Call) -> None:
         if node.func.value in self._logfuncs:
             self._excs_in_logfunc_call.append(0)
+        # If there are any additional args other than file and/or an
+        # exception, raise warning
+        # The file args can be safely ignored, since we can include that
+        # information by configuring the root logger's formatter
+        for a in node.args[1:-1]:
+            if not m.matches(
+                a, m.Arg(value=m.Name("file") | m.Name("File"))
+            ) and not m.matches(
+                a,
+                m.Arg(
+                    value=m.Name(
+                        value=m.MatchIfTrue(
+                            lambda value: value in self._handled_exceptions
+                        )
+                    )
+                ),
+            ):
+                pos = self.get_metadata(cst.metadata.PositionProvider, node).start
+                self.warn(
+                    f"Unrecognized arguments in logfunc call: line {pos.line}, column {pos.column}"
+                )
+                break
 
     @m.call_if_inside(LogFunctionCall())
     @m.visit(m.Arg(value=m.Name()))
@@ -296,31 +321,9 @@ class ReplaceFuncWithLoggerCommand(mod.VisitorBasedCodemodCommand):
             return updated
         fmt = original.args[0].value
         method = literal_eval(original.args[-1].value.value)
-        args = original.args[1:-1]
 
-        if args:
-            # If there are any additional args other than file and/or an
-            # exception, raise warning
-            # The file args can be safely ignored, since we can include that
-            # information by configuring the root logger's formatter
-            if [
-                a
-                for a in args
-                if not m.matches(a, m.Arg(value=m.Name("file") | m.Name("File")))
-                and not m.matches(
-                    a,
-                    m.Arg(
-                        value=m.Name(
-                            value=m.MatchIfTrue(
-                                lambda value: value in self._handled_exceptions
-                            )
-                        )
-                    ),
-                )
-            ]:
-                self.warn(f"Unrecognized arguments in logfunc call: {args}")
-
-        # Now that we've issued warnings about any anomalies, ignore all args
+        # We've already issued warnings about any anomalies in
+        # enter_logfunc_context, so here we just ignore all args
         # other than loglevel and message
         args = []
 
@@ -328,9 +331,15 @@ class ReplaceFuncWithLoggerCommand(mod.VisitorBasedCodemodCommand):
         # should replace the call with logger.exception(...)
         if self._excs_in_logfunc_call.pop() > 0:
             if self._function_context:
-                exc_scope = self.get_metadata(
-                    cst.metadata.QualifiedNameProvider,
-                    self._function_context[-1],
+                # The QualifiedNameProvider returns a set() of *possible*
+                # qualified names, of which we only need one
+                exc_scope = (
+                    self.get_metadata(
+                        cst.metadata.QualifiedNameProvider,
+                        self._function_context[-1],
+                    )
+                    .pop()
+                    .name
                 )
             else:
                 exc_scope = "UNKNOWN"
