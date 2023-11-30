@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "wsf-refactoring-tools"
+version = "0.1.0"
+description = "Codemods for automated refactoring of the WSF codebase."
+authors = ["Michael Haynes"]
+readme = "README.rst"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+libcst = "1.1.0"
+
+[tool.poetry.group.dev.dependencies]
+ufmt = "^2.3.0"
+libcst = "^1.1.0"
+docformatter = "^1.7.5"
+pytest = "^7.4.3"
+pip-tools = "^7.3.0"
+pipreqs = "^0.4.13"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
