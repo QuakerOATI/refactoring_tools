@@ -6,6 +6,7 @@ class TestRemoveLogFuncDefAndImports(CodemodTest):
 
     @classmethod
     def setUpClass(cls):
+        cls.TRANSFORM.AUTOCHAIN = False
         cls.eprint_def = """
             def eprint(msg, file, level):
                 print("{}::{}::{}".format(level, file, msg))
@@ -18,7 +19,7 @@ class TestRemoveLogFuncDefAndImports(CodemodTest):
     def setUp(self) -> None:
         # Setting AUTOCHAIN = False allows us to test this
         # transform in isolation
-        self.__class__.TRANSFORM.AUTOCHAIN = False
+        self.TRANSFORM.AUTOCHAIN = False
 
     def test_simple_import(self) -> None:
         before = dedent(

@@ -1,5 +1,6 @@
 from .imports import *
 from .codemod_base import CodemodBase
+from .add_global_statements import AddGlobalStatements
 from ..utils.matchers import TemplateString, LogFunctionCall
 
 
@@ -132,6 +133,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
     METADATA_DEPENDENCIES = (
         cst.metadata.QualifiedNameProvider,
         cst.metadata.PositionProvider,
+        cst.metadata.ScopeProvider,
     )
 
     class LogFuncReplaceException(Exception):
@@ -169,6 +171,20 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         self._logger_name = logger_name
         self._function_context = []
         self._handled_exceptions = set()
+
+    @m.visit(m.Module())
+    def check_global_scope_for_logger(self, node: cst.Module) -> None:
+        """Define logger at module scope, provided it's not already defined."""
+        global_scope = self.get_metadata(cst.metadata.ScopeProvider, node)
+        if self._logger_name in global_scope:
+            raise self.LogFuncReplaceException(
+                f"Module scope already contains the name {self._logger_name}"
+            )
+        else:
+            AddGlobalStatements.add_global_statement(
+                self.context,
+                f"{self._logger_name} = logging.getLogger(__name__)",
+            )
 
     @m.visit(m.FunctionDef())
     def push_function_onto_context(self, node: cst.FunctionDef) -> None:
@@ -267,8 +283,12 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                     )
                 except KeyError:
                     # pop from an empty set
-                    pos = self.get_metadata(cst.metadata.PositionProvider, original).start
-                    self.warn(f"Unable to find qualified name for function context of exception (QualifiedNameProvider returned empty set): line {pos.line}, column {pos.column}")
+                    pos = self.get_metadata(
+                        cst.metadata.PositionProvider, original
+                    ).start
+                    self.warn(
+                        f"Unable to find qualified name for function context of exception (QualifiedNameProvider returned empty set): line {pos.line}, column {pos.column}"
+                    )
                     exc_scope = "UNKNOWN"
             else:
                 exc_scope = "Module"

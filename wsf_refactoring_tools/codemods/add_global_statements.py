@@ -18,19 +18,19 @@ class AddGlobalStatements(CodemodBase):
     DESCRIPTION = "Add"
 
     @staticmethod
-    def add_global_statement(context: mod.CodemodContext, statement: str):
+    def add_global_statement(context: mod.CodemodContext, statement: str) -> None:
         """Schedule a global statement to be added in a future invocation.
 
         Based on the implementation of
         :obj:`libcst.codemod.visitors.AddImportsVisitor.add_needed_import`.
         """
         statements = AddGlobalStatements._get_statements_from_context(context)
-        statements.append(statement)
+        statements.add(statement)
         context.scratch[AddGlobalStatements.CONTEXT_KEY] = statements
 
     @staticmethod
-    def _get_statements_from_context(context: mod.CodemodContext) -> List[str]:
-        return context.scratch.get(AddGlobalStatements.CONTEXT_KEY, [])
+    def _get_statements_from_context(context: mod.CodemodContext) -> Set[str]:
+        return context.scratch.get(AddGlobalStatements.CONTEXT_KEY, set())
 
     def _split_module_with_empty_line(
         self, node: cst.Module, updated_node: cst.Module
@@ -53,7 +53,9 @@ class AddGlobalStatements(CodemodBase):
 
     def __init__(self, context: mod.CodemodContext, statements: List[str] = []):
         super().__init__(context)
-        self._statements = [*self._get_statements_from_context(context), *statements]
+        self._statements = set(statements).union(
+            self._get_statements_from_context(context)
+        )
 
     def leave_Module(self, original: cst.Module, updated: cst.Module) -> cst.Module:
         """Insert statements after all imports and before all others.

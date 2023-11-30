@@ -6,6 +6,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
 
     @classmethod
     def setUpClass(cls):
+        cls.TRANSFORM.AUTOCHAIN = False
         cls.preamble = """from Baz import baz as qux"""
 
         cls.fmt = '"{} is {} is {}"'
@@ -13,12 +14,20 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         cls.percent_fmt = '"%s is %s is %s"'
         cls.logger_name = "logger"
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.TRANSFORM.AUTOCHAIN = False
+
     def setUp(self) -> None:
         # The context has to be refreshed for every test method, which is
         # why this isn't in setUpClass
         self.context = CodemodContext(
             scratch={self.TRANSFORM.CONTEXT_KEY: {"eprint"}},
         )
+        self.TRANSFORM.AUTOCHAIN = False
+
+    def tearDown(self) -> None:
+        self.TRANSFORM.AUTOCHAIN = False
 
     def get_scopes(self, before_code: str):
         wrapper = cst.metadata.MetadataWrapper(
@@ -121,6 +130,42 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             """
         )
 
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
+        )
+
+    def test_exception_function_scope_nested_exceptions(self) -> None:
+        before = dedent(
+            f"""
+            {self.preamble}
+            def foo(bar):
+                try:
+                    print("Is this safe?")
+                    try:
+                        raise ValueError("oops")
+                    except ValueError as e:
+                        eprint({self.error_fmt}.format(e), __file__, "INFO")
+                except Exception:
+                    eprint("outer exception", "ERROR")
+            """
+        ).strip()
+
+        after = dedent(
+            f"""
+            {self.preamble}
+            import logging
+
+            def foo(bar):
+                try:
+                    print("Is this safe?")
+                    try:
+                        raise ValueError("oops")
+                    except ValueError as e:
+                        logger.exception("Error in function: foo", exc_info=True)
+                except Exception:
+                    logger.error("outer exception")
+            """
+        )
         self.assertCodemod(
             before, after, self.logger_name, context_override=self.context
         )
