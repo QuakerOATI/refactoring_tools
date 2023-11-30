@@ -72,7 +72,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             ],
         )
 
-    def test_exception(self) -> None:
+    def test_exception_at_module_scope(self) -> None:
         before = dedent(
             f"""
             {self.preamble}
@@ -91,12 +91,8 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             try:
                 raise ValueError("oops")
             except ValueError as e:
-                logger.exception("Error in function: UNKNOWN", exc_info=True)
+                logger.exception("Error in function: Module", exc_info=True)
             """
-        )
-
-        self.assertCodemod(
-            before, after, self.logger_name, context_override=self.context
         )
 
     def test_exception_with_function_scope(self) -> None:

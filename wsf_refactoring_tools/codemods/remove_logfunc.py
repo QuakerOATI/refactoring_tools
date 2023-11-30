@@ -17,7 +17,15 @@ class RemoveLogfuncDefAndImports(CodemodBase):
 
     @staticmethod
     def add_args(parser: argparse.ArgumentParser) -> None:
-        pass
+        parser.add_argument(
+            "--logfunc",
+            dest="logfunc",
+            metavar="LOGFUNC",
+            help="Name of custom log function to replace",
+            type=str,
+            required=False,
+            default="eprint",
+        )
 
     def __init__(self, context: mod.CodemodContext, logfunc: str = "eprint") -> None:
         super().__init__(context)
@@ -51,15 +59,12 @@ class RemoveLogfuncDefAndImports(CodemodBase):
     def _remove_references(self, node: Union[cst.ImportAlias, cst.FunctionDef]) -> None:
         if isinstance(node, cst.ImportAlias):
             if node.asname is not None:
-                ReplaceFuncWithLoggerCommand.replace_logfunc(
-                    self.context, node.evaluated_alias
-                )
+                name = node.evaluated_alias
             else:
-                ReplaceFuncWithLoggerCommand.replace_logfunc(
-                    self.context, node.evaluated_name
-                )
+                name = node.evaluated_name
         elif isinstance(node, cst.FunctionDef):
-            ReplaceFuncWithLoggerCommand.replace_logfunc(self.context, node.name.value)
+            name = node.name.value
+        ReplaceFuncWithLoggerCommand.replace_logfunc(self.context, node.name.value)
 
     @m.leave(m.Import())
     @m.leave(m.ImportFrom())
@@ -249,18 +254,24 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         # should replace the call with logger.exception(...)
         if self._excs_in_logfunc_call.pop() > 0:
             if self._function_context:
-                # The QualifiedNameProvider returns a set() of *possible*
-                # qualified names, of which we only need one
-                exc_scope = (
-                    self.get_metadata(
-                        cst.metadata.QualifiedNameProvider,
-                        self._function_context[-1],
+                try:
+                    # The QualifiedNameProvider returns a set() of *possible*
+                    # qualified names, of which we only need one
+                    exc_scope = (
+                        self.get_metadata(
+                            cst.metadata.QualifiedNameProvider,
+                            self._function_context[-1],
+                        )
+                        .pop()
+                        .name
                     )
-                    .pop()
-                    .name
-                )
+                except KeyError:
+                    # pop from an empty set
+                    pos = self.get_metadata(cst.metadata.PositionProvider, original).start
+                    self.warn(f"Unable to find qualified name for function context of exception (QualifiedNameProvider returned empty set): line {pos.line}, column {pos.column}")
+                    exc_scope = "UNKNOWN"
             else:
-                exc_scope = "UNKNOWN"
+                exc_scope = "Module"
             msg = f"Error in function: {exc_scope}"
             return updated.with_changes(
                 func=cst.Attribute(
