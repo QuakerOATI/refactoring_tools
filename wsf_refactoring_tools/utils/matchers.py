@@ -33,5 +33,6 @@ def LogFunctionCall():
             m.Arg(value=TemplateString() | m.SimpleString()),
             m.ZeroOrMore(),
             m.Arg(value=LogLevelLiteral()),
+            m.ZeroOrMore(),
         ],
     )
