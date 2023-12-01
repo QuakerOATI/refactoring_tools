@@ -102,7 +102,7 @@ class TestRemoveLogFuncDefAndImports(CodemodTest):
         ).strip()
 
         after = dedent(
-            f"""
+            """
             import logging
 
             logger = logging.getLogger(__name__)
@@ -116,6 +116,6 @@ class TestRemoveLogFuncDefAndImports(CodemodTest):
             before,
             after,
             expected_warnings=[
-                "Unrecognized arguments in logfunc call: line 3, column 0"
+                "Unrecognized arguments in logfunc call :: line 3, column 0"
             ],
         )

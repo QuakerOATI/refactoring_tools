@@ -326,7 +326,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             fmt = fmt.func.value.value.replace("{}", "%s")
             # ...let's just double-check though :)
             try:
-                _ = fmt % ("string" for _ in args)
+                _ = fmt % tuple("string" for _ in args)
             except TypeError:
                 self.raise_at_node(
                     original,

@@ -77,7 +77,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             self.logger_name,
             context_override=self.context,
             expected_warnings=[
-                f"Unrecognized arguments in logfunc call: line 1, column 0",
+                "Unrecognized arguments in logfunc call :: line 1, column 0",
             ],
         )
 
@@ -102,6 +102,10 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             except ValueError as e:
                 logger.exception("Error in function: Module", exc_info=True)
             """
+        ).strip()
+
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
         )
 
     def test_exception_with_function_scope(self) -> None:
@@ -171,23 +175,11 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         )
 
     def test_complex_format_string_raises(self) -> None:
-        before = dedent(
-            f"""
-            {self.preamble}
+        before = """
             eprint("{:s} is {!r:s} is {!r:s}".format("foo", bar, qux), "INFO")
             """
-        ).strip()
-
-        after = dedent(
-            f"""
-            {self.preamble}
-            import logging
-
-            {self.logger_name}.info({self.percent_fmt}, "foo", bar, qux)
-            """
-        ).strip()
 
         with self.assertRaises(self.TRANSFORM.LogFuncReplaceException):
             self.assertCodemod(
-                before, after, self.logger_name, context_override=self.context
+                before, "", self.logger_name, context_override=self.context
             )
