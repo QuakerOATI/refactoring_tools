@@ -169,3 +169,25 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         self.assertCodemod(
             before, after, self.logger_name, context_override=self.context
         )
+
+    def test_complex_format_string_raises(self) -> None:
+        before = dedent(
+            f"""
+            {self.preamble}
+            eprint("{:s} is {!r:s} is {!r:s}".format("foo", bar, qux), "INFO")
+            """
+        ).strip()
+
+        after = dedent(
+            f"""
+            {self.preamble}
+            import logging
+
+            {self.logger_name}.info({self.percent_fmt}, "foo", bar, qux)
+            """
+        ).strip()
+
+        with self.assertRaises(self.TRANSFORM.LogFuncReplaceException):
+            self.assertCodemod(
+                before, after, self.logger_name, context_override=self.context
+            )

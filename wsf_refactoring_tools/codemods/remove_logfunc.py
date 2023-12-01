@@ -139,6 +139,16 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
     class LogFuncReplaceException(Exception):
         pass
 
+    def warn_at_node(self, node: cst.CSTNode, msg: str) -> None:
+        pos = self.get_metadata(cst.metadata.PositionProvider, node).start
+        self.warn(f"{msg} :: line {pos.line}, column {pos.column}")
+
+    def raise_at_node(self, node: cst.CSTNode, msg: str) -> None:
+        pos = self.get_metadata(cst.metadata.PositionProvider, node).start
+        raise self.LogFuncReplaceException(
+            f"{msg} :: line {pos.line}, column {pos.column}"
+        )
+
     @staticmethod
     def add_args(parser: argparse.ArgumentParser) -> None:
         pass
@@ -238,10 +248,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                         )
                     ),
                 ):
-                    pos = self.get_metadata(cst.metadata.PositionProvider, node).start
-                    self.warn(
-                        f"Unrecognized arguments in logfunc call: line {pos.line}, column {pos.column}"
-                    )
+                    self.warn_at_node(node, "Unrecognized arguments in logfunc call")
                     break
 
     @m.call_if_inside(LogFunctionCall())
@@ -283,11 +290,9 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                     )
                 except KeyError:
                     # pop from an empty set
-                    pos = self.get_metadata(
-                        cst.metadata.PositionProvider, original
-                    ).start
-                    self.warn(
-                        f"Unable to find qualified name for function context of exception (QualifiedNameProvider returned empty set): line {pos.line}, column {pos.column}"
+                    self.warn_at_node(
+                        original,
+                        "Unable to find qualified name for function context of exception (QualifiedNameProvider returned empty set)",
                     )
                     exc_scope = "UNKNOWN"
             else:
@@ -319,9 +324,17 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             args = fmt.args
             # Simpleminded, but Good Enough for this use case
             fmt = fmt.func.value.value.replace("{}", "%s")
+            # ...let's just double-check though :)
+            try:
+                _ = fmt % ("string" for _ in args)
+            except TypeError:
+                self.raise_at_node(
+                    original,
+                    "Failed to convert str.format() call to %-style format string",
+                )
         else:
-            raise self.LogFuncReplaceException(
-                f"Unknown format for first logger function argument: {fmt}"
+            self.raise_at_node(
+                original, "Unknown format for first logger function argument"
             )
 
         return updated.with_changes(
