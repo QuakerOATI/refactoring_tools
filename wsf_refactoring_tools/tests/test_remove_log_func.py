@@ -105,6 +105,8 @@ class TestRemoveLogFuncDefAndImports(CodemodTest):
             f"""
             import logging
 
+            logger = logging.getLogger(__name__)
+
 
             logger.debug("foobar")
             """

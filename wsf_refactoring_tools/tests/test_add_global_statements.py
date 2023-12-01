@@ -14,23 +14,19 @@ class TestAddGlobalStatement(CodemodTest):
 
             from typing import List, Union
             from libcst import codemod as mod
-            """.removeprefix(
-            "\n"
-        ).removesuffix(
-            "\n"
-        )
+            """
 
         cls.function_def = """
             def foo(bar):
                 print(bar)
-            """.removeprefix(
-            "\n"
-        ).removesuffix(
-            "\n"
-        )
+            """
 
-        cls.logger_declaration = "logger = logging.getLogger(__name__)"
-        cls.print_statement = "print('hi there')"
+        cls.logger_declaration = """
+            logger = logging.getLogger(__name__)
+            """
+        cls.print_statement = """
+            print('hi there')
+            """
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -44,38 +40,64 @@ class TestAddGlobalStatement(CodemodTest):
 
     def test_function_def(self) -> None:
         before = f"""
-            {self.imports}
+            import json
+            import sys, os
+            import logging
 
-            {self.function_def}
+            from typing import List, Union
+            from libcst import codemod as mod
+
+            def foo(bar):
+                print(bar)
             """
 
         after = f"""
-            {self.imports}
+            import json
+            import sys, os
+            import logging
 
-            {self.logger_declaration}
+            from typing import List, Union
+            from libcst import codemod as mod
 
-            {self.function_def}
+            logger = logging.getLogger(__name__)
+
+            def foo(bar):
+                print(bar)
             """
-        self.assertCodemod(before, after, [self.logger_declaration])
+        self.assertCodemod(before, after, [dedent(self.logger_declaration).strip()])
 
     def test_duplicate_statements(self) -> None:
         before = f"""
-            {self.imports}
+            import json
+            import sys, os
+            import logging
 
-            {self.function_def}
+            from typing import List, Union
+            from libcst import codemod as mod
+
+            def foo(bar):
+                print(bar)
             """
 
         after = f"""
-            {self.imports}
+            import json
+            import sys, os
+            import logging
 
-            {self.logger_declaration}
-            {self.function_def}
+            from typing import List, Union
+            from libcst import codemod as mod
+
+            logger = logging.getLogger(__name__)
+
+            def foo(bar):
+                print(bar)
             """
 
         self.assertCodemod(
             before,
             after,
             context_override=self.get_context(
-                self.logger_declaration, self.logger_declaration
+                dedent(self.logger_declaration).strip(),
+                dedent(self.logger_declaration).strip(),
             ),
         )
