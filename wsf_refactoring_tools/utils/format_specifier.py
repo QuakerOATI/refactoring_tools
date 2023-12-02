@@ -1,7 +1,13 @@
 from __future__ import annotations
 import string
 import dataclasses
-from typing import List, Callable, Tuple, Literal, TypeVar, Union, Any, Optional
+from typing import (
+    List,
+    Literal,
+    TypeVar,
+    Union,
+    Optional,
+)
 from exception_stack import ExceptionStack
 
 NUMERIC_TYPES = {
