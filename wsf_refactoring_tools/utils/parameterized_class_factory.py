@@ -10,6 +10,7 @@ from typing import (
 from inspect import (
     signature,
     isfunction,
+    isclass,
     getmembers,
 )
 
@@ -29,13 +30,18 @@ class ParameterizedClassFactory:
         param_type: parameter type to inject into reified generic
         cls_name: string to set as the __name__ attribute on reified class
         default_param_inst: instance of generic to use as a default if a
-            caller attempts to instantiate this class directly
+            caller attempts to instantiate this class directly.  If an
+            Exception instance or subclass is passed for this argument,
+            it will be instantiated (if necessary) and raised whenever a
+            caller attempts to instantiate the returned parameterized class
+            without subscripting by a suitable instance of the generic type
+            first.
 
     Example:
 
     >>> class _Foo:
-    >>>     def foo(self, foo: int, bar: str) -> None:
-    >>>         print(f"{bar}: {foo}")
+    ...     def foo(self, foo: int, bar: str) -> None:
+    ...         print(f"{bar}: {foo}")
     >>>
     >>> # This defines Foo as a generic class with a parameter of type str
     >>> Foo = ParameterizedClassFactory(_Foo, str, "Foo")
@@ -50,7 +56,7 @@ class ParameterizedClassFactory:
     >>> # As a result, instances of HelloWorldFoo don't have to (and can't)
     >>> # pass string arguments to the .foo method:
     >>> hello_world_instance.foo(3)
-    Hello world: 3
+    hello world: 3
     """
 
     def __init__(
@@ -60,16 +66,20 @@ class ParameterizedClassFactory:
         cls_name: str,
         default_param_inst: Optional[Union[Exception, T]] = None,
     ) -> None:
+        if not isclass(param_type):
+            raise TypeError(f"{self.__class__} requires param_type to be a class")
         self._generic = generic
         self._param_type = param_type
         self._cls_name = cls_name
         self._default_inst = default_param_inst
-        for name, method in getmembers(self._generic, isfunction):
-            self._methods[name] = [
-                param.name
-                for param in signature(method).parameters
-                if param.annotation == self._param_type
+        self._methods = {
+            func_name: [
+                param_name
+                for param_name, param in signature(func).parameters.items()
+                if param.annotation is self._param_type
             ]
+            for func_name, func in getmembers(self._generic, isfunction)
+        }
 
     def __getitem__(self, item: Type[T]) -> Type[_G]:
         if not isinstance(item, self._param_type):
@@ -78,7 +88,7 @@ class ParameterizedClassFactory:
             )
 
         class _Reified(self._generic):
-            __name__ = f"{self._cls_name}[{textwrap.shorten(str(item))}]"
+            __name__ = f"{self._cls_name}[{textwrap.shorten(str(item), 10)}]"
             __module__ = self._generic.__module__
             __doc__ = f"""Reification of parameterized class {self._cls_name}.
 
@@ -87,7 +97,7 @@ class ParameterizedClassFactory:
             {self._generic.__doc__}
             """
 
-        for name, to_subst in self._methods:
+        for name, to_subst in self._methods.items():
             setattr(
                 _Reified,
                 name,
@@ -100,9 +110,11 @@ class ParameterizedClassFactory:
         return _Reified
 
     def __call__(self, *args, **kwargs) -> Type[_G]:
-        if isinstance(self._default_inst, Exception):
+        if isclass(self._default_inst) and issubclass(self._default_inst, Exception):
             raise self._default_inst(
                 f"Parameterized class {self._cls_name} can only be instantiated if a parameter instance of type {self._param_type} is explicitly provided"
             )
+        elif isinstance(self._default_inst, Exception):
+            raise self._default_inst
         else:
             return self[self._default_inst]
