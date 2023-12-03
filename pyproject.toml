@@ -8,6 +8,7 @@ readme = "README.rst"
 [tool.poetry.dependencies]
 python = "^3.11"
 libcst = "1.1.0"
+makefun = "^1.15.2"
 
 [tool.poetry.group.dev.dependencies]
 ufmt = "^2.3.0"
@@ -16,6 +17,7 @@ docformatter = "^1.7.5"
 pytest = "^7.4.3"
 pip-tools = "^7.3.0"
 pipreqs = "^0.4.13"
+ipython = "^8.18.1"
 
 [build-system]
 requires = ["poetry-core"]
