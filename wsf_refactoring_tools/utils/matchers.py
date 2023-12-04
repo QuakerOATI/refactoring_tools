@@ -49,7 +49,7 @@ def split_logfunc_args(node: cst.Call) -> Tuple[List[cst.Arg], List[cst.Arg]]:
         elif m.matches(arg, m.Arg(value=TemplateString())):
             if fmt is not None:
                 raise ValueError("Multiple format strings found in libcst.Call node on attempt to apply logfunc parsing rules")
-        elif m.matches(arg, m.Arg(value=m.Name("file") | m.Name("File")):
+        elif m.matches(arg, m.Arg(value=m.Name("file") | m.Name("File"))):
             if filename is not None:
                 raise ValueError("Multiple filenames found in libcst.Call node on attempt to apply logfunc parsing rules")
         else:

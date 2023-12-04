@@ -2,6 +2,7 @@ from .imports import *
 from .codemod_base import CodemodBase
 from .add_global_statements import AddGlobalStatements
 from ..utils.matchers import TemplateString, LogFunctionCall
+from ..utils.is_referent_instance_of import IsNameReferentInstanceOfProvider
 
 
 class RemoveLogfuncDefAndImports(CodemodBase):
@@ -112,16 +113,16 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                 block, and
             2. a possible arguement namd `file` or `File`.
 
-    If the first argument to `func` has the form `msg.format(*args) for some
+    If the first argument to `func` has the form `msg.format(*args)` for some
     template message msg, then the replacement will be
     `logger.<loglevel>(pmsg, *args)`, where `pmsg` is the same as `msg` but
-    all placeholders {} replaed by old-style %s placeholders.
+    with all placeholders {} replaced by old-style %s placeholders.
 
     If the `func` call occurs inside an `except` block and at least one of its
     arguments is a caught exception, it will be replaced with a call to
     `logger.exception` with the keyword argument exc_info=True. Otherwise, the
     last argument will be taken as the name of the logger method to use, and
-    the first argument to be the template string of message.
+    the first argument to be the template string of the message.
 
     The name of the logger object to use can be passed in the constructor.
     """
@@ -134,6 +135,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         cst.metadata.QualifiedNameProvider,
         cst.metadata.PositionProvider,
         cst.metadata.ScopeProvider,
+        IsNameReferentInstanceOfProvider[m.SimpleString()],
     )
 
     class LogFuncReplaceException(Exception):
