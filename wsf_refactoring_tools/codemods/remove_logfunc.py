@@ -1,8 +1,34 @@
+from ast import literal_eval
+from dataclasses import dataclass
+from typing import (
+    Literal,
+    List,
+    Any,
+    Union,
+    Optional,
+    Tuple,
+)
 from .imports import *
 from .codemod_base import CodemodBase
 from .add_global_statements import AddGlobalStatements
 from ..utils.matchers import TemplateString, LogFunctionCall
-from ..utils.is_referent_instance_of import IsNameReferentInstanceOfProvider
+
+LOGLEVELS = [
+    "DEBUG",
+    "INFO",
+    "WARNING",
+    "WARN",
+    "ERROR",
+    "CRITICAL",
+    "FATAL"
+]
+
+
+@dataclass
+class CSTString:
+    name: Optional[cst.Name] = None
+    literal: Optional[cst.SimpleString] = None
+    format_args: Optional[Tuple[cst.Arg]] = tuple()
 
 
 class RemoveLogfuncDefAndImports(CodemodBase):
@@ -101,6 +127,7 @@ class RemoveLogfuncDefAndImports(CodemodBase):
             return updated
 
 
+
 class ReplaceFuncWithLoggerCommand(CodemodBase):
     """Replace calls to a specified function `func` with logger calls.
 
@@ -135,7 +162,6 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         cst.metadata.QualifiedNameProvider,
         cst.metadata.PositionProvider,
         cst.metadata.ScopeProvider,
-        IsNameReferentInstanceOfProvider[m.SimpleString()],
     )
 
     class LogFuncReplaceException(Exception):
@@ -183,6 +209,52 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         self._logger_name = logger_name
         self._function_context = []
         self._handled_exceptions = set()
+        self._string_varnames = set()
+
+    def get_string_components(self, node: Union[cst.Name, cst.Call, cst.SimpleString]) -> Optional[CSTString]:
+        """Check if the passed node is a str, str.format, or string ref.
+        """
+        if m.matches(node, m.SimpleString()):
+            return CSTString(literal=literal_eval(node.value))
+        elif m.matches(node, m.Call(func=m.Attribute(attr=m.Name("format")))):
+            ret = CSTString(format_args=node.args)
+            if m.matches(node.func.value, m.SimpleString()):
+                ret.literal = literal_eval(node.func.value.value)
+            elif m.matches(node.func.value, m.Name()) and node.func.value.value in self._string_varnames:
+                ret.name = node.func.value
+            return ret
+        elif m.matches(node, m.Name()) and node.value in self._string_varnames:
+            return CSTString(name=node)
+        return None
+
+    def get_logfunc_arguments(self, node: cst.Call) -> Tuple[str, CSTString, Exception]:
+        """Get loglevel, message, and possible Exception instance from logfunc call.
+        """
+        loglevel, msg = None, None
+        unrecognized = 0
+        for arg in node.args:
+            if (comps := self.get_string_components(arg.value)) is not None:
+                # arg is a string
+                if comps.literal in LOGLEVELS:
+                    if loglevel is not None:
+                        self.raise_at_node("Multiple loglevels in logfunc call")
+                    loglevel = comps.literal
+                elif comps.name is not None and comps.name.value.lower() == "file":
+                    self.warn_at_node(node, "File argument in logfunc call")
+                elif msg is None:
+                    msg = comps
+                else:
+                    unrecognized += 1
+            elif m.matches(arg.value, m.Name()) and arg.value.value in self._handled_exceptions:
+                # handled below
+                pass
+            else:
+                unrecognized += 1
+        if unrecognized > 0:
+            self.warn_at_node(node, f"{unrecognized} unrecognized argument(s) found in logfunc call")
+        if msg is None or loglevel is None:
+            self.raise_at_node("Malformed logfunc call")
+        return loglevel, msg
 
     @m.visit(m.Module())
     def check_global_scope_for_logger(self, node: cst.Module) -> None:
@@ -201,6 +273,11 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
     @m.visit(m.FunctionDef())
     def push_function_onto_context(self, node: cst.FunctionDef) -> None:
         self._function_context.append(node)
+
+
+    @m.visit(m.Assign(targets=[m.AssignTarget(target=m.Name()), m.ZeroOrMore(m.Name())], value=m.SimpleString()))
+    def record_string_assignment(self, node: cst.Assign) -> None:
+        self._string_varnames.add(node.targets[0].target.value)
 
     @m.leave(m.FunctionDef())
     def pop_function_context(
@@ -227,53 +304,27 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         self._handled_exceptions.discard(exc_name)
         return updated
 
-    @m.visit(LogFunctionCall())
-    def enter_logfunc_context(self, node: cst.Call) -> None:
-        if node.func.value in self._logfuncs:
-            self._excs_in_logfunc_call.append(0)
-            mod.visitors.AddImportsVisitor.add_needed_import(self.context, "logging")
-
-            # If there are any additional args other than file and/or an
-            # exception, raise warning
-            # The file args can be safely ignored, since we can include that
-            # information by configuring the root logger's formatter
-            for a in node.args[1:-1]:
-                if not m.matches(
-                    a, m.Arg(value=m.Name("file") | m.Name("File"))
-                ) and not m.matches(
-                    a,
-                    m.Arg(
-                        value=m.Name(
-                            value=m.MatchIfTrue(
-                                lambda value: value in self._handled_exceptions
-                            )
-                        )
-                    ),
-                ):
-                    self.warn_at_node(node, "Unrecognized arguments in logfunc call")
-                    break
-
-    @m.call_if_inside(LogFunctionCall())
+    @m.call_if_inside(m.Call(func=m.Name()))
     @m.visit(m.Arg(value=m.Name()))
     def set_exc_context(self, node: cst.Arg) -> None:
         if node.value.value in self._handled_exceptions:
             if self._excs_in_logfunc_call:
                 self._excs_in_logfunc_call[-1] += 1
 
-    @m.leave(LogFunctionCall())
+    @m.visit(m.Call(func=m.Name()))
+    def enter_logfunc_context(self, node: cst.Call) -> None:
+        if node.func.value in self._logfuncs:
+            self._excs_in_logfunc_call.append(0)
+            mod.visitors.AddImportsVisitor.add_needed_import(self.context, "logging")
+
+    @m.leave(m.Call(func=m.Name()))
     def change_logfunc_to_logger(
         self, original: cst.Call, updated: cst.Call
     ) -> cst.Call:
         """Remove and replace eprint :obj:`libcst.Call` nodes."""
         if original.func.value not in self._logfuncs:
             return updated
-        fmt = original.args[0].value
-        method = literal_eval(original.args[-1].value.value)
-
-        # We've already issued warnings about any anomalies in
-        # enter_logfunc_context, so here we just ignore all args
-        # other than loglevel and message
-        args = []
+        loglevel, msg = self.get_logfunc_arguments(original)
 
         # If any args inside the eprint call reference an exception, assume we
         # should replace the call with logger.exception(...)
@@ -318,34 +369,26 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                 ],
             )
 
-        # First arg should be either a format string or a simple string
-        if m.matches(fmt, m.SimpleString()):
-            fmt = fmt.value
-        elif m.matches(fmt, TemplateString()):
-            # The args we want are in the call to .format()
-            args = fmt.args
-            # Simpleminded, but Good Enough for this use case
-            fmt = fmt.func.value.value.replace("{}", "%s")
-            # ...let's just double-check though :)
-            try:
-                _ = fmt % tuple("string" for _ in args)
-            except TypeError:
-                self.raise_at_node(
-                    original,
-                    "Failed to convert str.format() call to %-style format string",
-                )
-        else:
-            self.raise_at_node(
-                original, "Unknown format for first logger function argument"
-            )
+        if msg.format_args:
+            if msg.name is not None:
+                # TODO: Implement reassignment codemod and call here
+                self.raise_at_node(original, "Logfunc argument replacement not yet implemented for named string format args")
+            else:
+                # Simpleminded, but Good Enough for this use case
+                msg.literal = msg.literal.replace("{}", "%s")
+                try:
+                    _ = msg.literal % tuple("string" for _ in msg.format_args)
+                except TypeError:
+                    self.raise_at_node(
+                        original,
+                        "Failed to convert str.format() call to %-style format string",
+                    )
+        fmt = msg.name if msg.name is not None else cst.SimpleString(value=repr(msg.literal))
 
         return updated.with_changes(
             func=cst.Attribute(
                 value=cst.Name(value="logger"),
-                attr=cst.Name(method.lower()),
+                attr=cst.Name(loglevel.lower()),
             ),
-            args=[
-                cst.Arg(value=cst.SimpleString(value=fmt)),
-                *args,
-            ],
+            args=[cst.Arg(value=fmt), *msg.format_args],
         )

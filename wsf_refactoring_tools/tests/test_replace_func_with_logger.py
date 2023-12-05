@@ -11,7 +11,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
 
         cls.fmt = '"{} is {} is {}"'
         cls.error_fmt = '"Exception: {}"'
-        cls.percent_fmt = '"%s is %s is %s"'
+        cls.percent_fmt = "'%s is %s is %s'"
         cls.logger_name = "logger"
 
     @classmethod
@@ -77,7 +77,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             self.logger_name,
             context_override=self.context,
             expected_warnings=[
-                "Unrecognized arguments in logfunc call :: line 1, column 0",
+                "2 unrecognized argument(s) found in logfunc call :: line 1, column 0",
             ],
         )
 
@@ -167,7 +167,7 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
                     except ValueError as e:
                         logger.exception("Error in function: foo", exc_info=True)
                 except Exception:
-                    logger.error("outer exception")
+                    logger.error('outer exception')
             """
         )
         self.assertCodemod(

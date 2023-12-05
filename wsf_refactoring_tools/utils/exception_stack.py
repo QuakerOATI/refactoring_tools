@@ -40,8 +40,8 @@ class ExceptionStack(AbstractContextManager):
         used as a context manager.  For example:
 
         >>> with ExceptionStack(tasks) as results:
-        >>>     # do something with results
-        >>>     # all tasks are guaranteed to execute
+        ...     # do something with results
+        ...     # all tasks are guaranteed to execute
 
         When using an ExceptionStack this way, self.exceptions is aggregated
         into an ExceptionGroup and reraised upon exiting the context.
@@ -93,7 +93,7 @@ class ExceptionStack(AbstractContextManager):
         return self.join()
 
     def __exit__(self, exc_type, exc_val, traceback):
-        # If an exceptions is raised outside of individual tasks, append it here
+        # If an exception is raised outside of individual tasks, append it here
         if isinstance(exc_val, Exception):
             self.exceptions.append(exc_val)
         self.resolve()
