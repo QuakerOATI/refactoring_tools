@@ -1,10 +1,12 @@
-import libcst as cst
+from textwrap import dedent
 from unittest.mock import Mock
-from libcst.codemod import CodemodTest, CodemodContext
+
+import libcst as cst
+from libcst.codemod import CodemodContext, CodemodTest
 from libcst.metadata import MetadataWrapper
+
 from ..codemods import (
     AddGlobalStatements,
-    ReplaceFuncWithLoggerCommand,
     RemoveLogfuncDefAndImports,
+    ReplaceFuncWithLoggerCommand,
 )
-from textwrap import dedent

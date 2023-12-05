@@ -1,27 +1,12 @@
 from ast import literal_eval
 from dataclasses import dataclass
-from typing import (
-    Literal,
-    List,
-    Any,
-    Union,
-    Optional,
-    Tuple,
-)
+from typing import Any, List, Literal, Optional, Tuple, Union
 from .imports import *
-from .codemod_base import CodemodBase
+from ..utils.matchers import LogFunctionCall, TemplateString
 from .add_global_statements import AddGlobalStatements
-from ..utils.matchers import TemplateString, LogFunctionCall
+from .codemod_base import CodemodBase
 
-LOGLEVELS = [
-    "DEBUG",
-    "INFO",
-    "WARNING",
-    "WARN",
-    "ERROR",
-    "CRITICAL",
-    "FATAL"
-]
+LOGLEVELS = ["DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL", "FATAL"]
 
 
 @dataclass
@@ -127,7 +112,6 @@ class RemoveLogfuncDefAndImports(CodemodBase):
             return updated
 
 
-
 class ReplaceFuncWithLoggerCommand(CodemodBase):
     """Replace calls to a specified function `func` with logger calls.
 
@@ -211,16 +195,20 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         self._handled_exceptions = set()
         self._string_varnames = set()
 
-    def get_string_components(self, node: Union[cst.Name, cst.Call, cst.SimpleString]) -> Optional[CSTString]:
-        """Check if the passed node is a str, str.format, or string ref.
-        """
+    def get_string_components(
+        self, node: Union[cst.Name, cst.Call, cst.SimpleString]
+    ) -> Optional[CSTString]:
+        """Check if the passed node is a str, str.format, or string ref."""
         if m.matches(node, m.SimpleString()):
             return CSTString(literal=literal_eval(node.value))
         elif m.matches(node, m.Call(func=m.Attribute(attr=m.Name("format")))):
             ret = CSTString(format_args=node.args)
             if m.matches(node.func.value, m.SimpleString()):
                 ret.literal = literal_eval(node.func.value.value)
-            elif m.matches(node.func.value, m.Name()) and node.func.value.value in self._string_varnames:
+            elif (
+                m.matches(node.func.value, m.Name())
+                and node.func.value.value in self._string_varnames
+            ):
                 ret.name = node.func.value
             return ret
         elif m.matches(node, m.Name()) and node.value in self._string_varnames:
@@ -228,8 +216,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         return None
 
     def get_logfunc_arguments(self, node: cst.Call) -> Tuple[str, CSTString, Exception]:
-        """Get loglevel, message, and possible Exception instance from logfunc call.
-        """
+        """Get loglevel, message, and possible Exception instance from logfunc call."""
         loglevel, msg = None, None
         unrecognized = 0
         for arg in node.args:
@@ -245,13 +232,18 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                     msg = comps
                 else:
                     unrecognized += 1
-            elif m.matches(arg.value, m.Name()) and arg.value.value in self._handled_exceptions:
+            elif (
+                m.matches(arg.value, m.Name())
+                and arg.value.value in self._handled_exceptions
+            ):
                 # handled below
                 pass
             else:
                 unrecognized += 1
         if unrecognized > 0:
-            self.warn_at_node(node, f"{unrecognized} unrecognized argument(s) found in logfunc call")
+            self.warn_at_node(
+                node, f"{unrecognized} unrecognized argument(s) found in logfunc call"
+            )
         if msg is None or loglevel is None:
             self.raise_at_node("Malformed logfunc call")
         return loglevel, msg
@@ -274,8 +266,12 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
     def push_function_onto_context(self, node: cst.FunctionDef) -> None:
         self._function_context.append(node)
 
-
-    @m.visit(m.Assign(targets=[m.AssignTarget(target=m.Name()), m.ZeroOrMore(m.Name())], value=m.SimpleString()))
+    @m.visit(
+        m.Assign(
+            targets=[m.AssignTarget(target=m.Name()), m.ZeroOrMore(m.Name())],
+            value=m.SimpleString(),
+        )
+    )
     def record_string_assignment(self, node: cst.Assign) -> None:
         self._string_varnames.add(node.targets[0].target.value)
 
@@ -372,7 +368,10 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         if msg.format_args:
             if msg.name is not None:
                 # TODO: Implement reassignment codemod and call here
-                self.raise_at_node(original, "Logfunc argument replacement not yet implemented for named string format args")
+                self.raise_at_node(
+                    original,
+                    "Logfunc argument replacement not yet implemented for named string format args",
+                )
             else:
                 # Simpleminded, but Good Enough for this use case
                 msg.literal = msg.literal.replace("{}", "%s")
@@ -383,7 +382,11 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                         original,
                         "Failed to convert str.format() call to %-style format string",
                     )
-        fmt = msg.name if msg.name is not None else cst.SimpleString(value=repr(msg.literal))
+        fmt = (
+            msg.name
+            if msg.name is not None
+            else cst.SimpleString(value=repr(msg.literal))
+        )
 
         return updated.with_changes(
             func=cst.Attribute(

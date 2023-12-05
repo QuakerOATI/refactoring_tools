@@ -1,18 +1,9 @@
 import textwrap
-import makefun
 from functools import singledispatchmethod, wraps
-from typing import (
-    Type,
-    TypeVar,
-    Optional,
-    Union,
-)
-from inspect import (
-    signature,
-    isfunction,
-    isclass,
-    getmembers,
-)
+from inspect import getmembers, isclass, isfunction, signature
+from typing import Optional, Type, TypeVar, Union
+
+import makefun
 
 T = TypeVar("T")
 _G = TypeVar("_G")

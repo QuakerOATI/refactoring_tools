@@ -1,11 +1,13 @@
 from . import *
-from libcst import matchers as m
-from unittest import TestCase
 from ast import literal_eval
+from unittest import TestCase
+
+from libcst import matchers as m
+
 from ..utils.is_referent_instance_of import IsNameReferentInstanceOfProvider
 
-class TestStringInstanceOfProvider(TestCase):
 
+class TestStringInstanceOfProvider(TestCase):
     class NamedStringVisitor(m.MatcherDecoratableVisitor):
         METADATA_DEPENDENCIES = (IsNameReferentInstanceOfProvider[m.SimpleString],)
 
@@ -26,9 +28,10 @@ class TestStringInstanceOfProvider(TestCase):
 
         @m.visit(m.Name())
         def collect_names(self, node: cst.Name) -> None:
-            if self.get_metadata(IsNameReferentInstanceOfProvider[m.SimpleString], node):
+            if self.get_metadata(
+                IsNameReferentInstanceOfProvider[m.SimpleString], node
+            ):
                 self.collected_string_names.add(node.value)
-
 
     @classmethod
     def setUpClass(cls):
@@ -45,8 +48,13 @@ class TestStringInstanceOfProvider(TestCase):
         return wrapper, visitor
 
     def test_reifications_identical(self):
-        first, second = IsNameReferentInstanceOfProvider[m.SimpleString], IsNameReferentInstanceOfProvider[m.SimpleString]
-        assert first is second, "Reifications of parameterized class IsNameReferentInstanceOfProvider to parameter type str were not identical"
+        first, second = (
+            IsNameReferentInstanceOfProvider[m.SimpleString],
+            IsNameReferentInstanceOfProvider[m.SimpleString],
+        )
+        assert (
+            first is second
+        ), "Reifications of parameterized class IsNameReferentInstanceOfProvider to parameter type str were not identical"
 
     def test_name_visitor_works(self):
         code = """
@@ -54,7 +62,11 @@ class TestStringInstanceOfProvider(TestCase):
             t = s.format("world")
         """
         wrapper, visitor = self.visit_module(code)
-        self.assertListEqual(["s"], list(visitor.named_strings), "NamedStringVisitor.named_strings does not contain expected name 's'")
+        self.assertListEqual(
+            ["s"],
+            list(visitor.named_strings),
+            "NamedStringVisitor.named_strings does not contain expected name 's'",
+        )
 
     def test_provider_resolution(self):
         code = """
@@ -71,7 +83,11 @@ class TestStringInstanceOfProvider(TestCase):
             t = s.format("world")
         """
         wrapper, visitor = self.visit_module(code)
-        self.assertListEqual(["s"], list(visitor.collected_string_names), f"Visitor collected_string_names doesn't match expected value ['s']: {visitor.collected_string_names}")
+        self.assertListEqual(
+            ["s"],
+            list(visitor.collected_string_names),
+            f"Visitor collected_string_names doesn't match expected value ['s']: {visitor.collected_string_names}",
+        )
 
     # def test_provider_in_metadata_dict(self):
     #     code = """

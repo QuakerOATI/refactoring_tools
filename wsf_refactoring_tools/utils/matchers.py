@@ -1,7 +1,8 @@
+from ast import literal_eval
+from typing import List, Tuple
+
 import libcst as cst
 import libcst.matchers as m
-from ast import literal_eval
-from typing import Tuple, List
 
 
 LOGLEVELS = ["DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL", "FATAL"]
@@ -44,13 +45,19 @@ def split_logfunc_args(node: cst.Call) -> Tuple[List[cst.Arg], List[cst.Arg]]:
     for arg in node.args:
         if m.matches(arg, m.Arg(value=LogLevelLiteral())):
             if loglevel is not None:
-                raise ValueError("Multiple loglevels found in libcst.Call node on attempt to apply logfunc parsing rules")
+                raise ValueError(
+                    "Multiple loglevels found in libcst.Call node on attempt to apply logfunc parsing rules"
+                )
             loglevel = arg
         elif m.matches(arg, m.Arg(value=TemplateString())):
             if fmt is not None:
-                raise ValueError("Multiple format strings found in libcst.Call node on attempt to apply logfunc parsing rules")
+                raise ValueError(
+                    "Multiple format strings found in libcst.Call node on attempt to apply logfunc parsing rules"
+                )
         elif m.matches(arg, m.Arg(value=m.Name("file") | m.Name("File"))):
             if filename is not None:
-                raise ValueError("Multiple filenames found in libcst.Call node on attempt to apply logfunc parsing rules")
+                raise ValueError(
+                    "Multiple filenames found in libcst.Call node on attempt to apply logfunc parsing rules"
+                )
         else:
             unmatched.append(arg)

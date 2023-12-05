@@ -1,8 +1,9 @@
 from __future__ import annotations
-from contextlib import AbstractContextManager
-from typing import Callable, List, Any, Tuple
+
 from collections import deque
+from contextlib import AbstractContextManager
 from functools import partial
+from typing import Any, Callable, List, Tuple
 
 
 class ExceptionStack(AbstractContextManager):
