@@ -174,7 +174,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
 
     @staticmethod
     def _get_logger_funcnames_from_context(context: mod.CodemodContext) -> Set[str]:
-        return context.scratch.setdefault(ReplaceFuncWithLoggerCommand.CONTEXT_KEY)
+        return context.scratch.setdefault(ReplaceFuncWithLoggerCommand.CONTEXT_KEY, set())
 
     def __init__(
         self,
