@@ -4,7 +4,7 @@ import dataclasses
 import string
 from typing import List, Literal, Optional, TypeVar, Union
 
-from exception_stack import ExceptionStack
+from .exception_stack import ExceptionStack
 
 NUMERIC_TYPES = {
     "decimal": "d",
