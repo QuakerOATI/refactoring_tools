@@ -1,2 +1,3 @@
 from .add_global_statements import AddGlobalStatements
 from .remove_logfunc import RemoveLogfuncDefAndImports, ReplaceFuncWithLoggerCommand
+from .add_imports import AddImportsCodemodCommand
