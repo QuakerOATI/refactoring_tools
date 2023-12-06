@@ -230,3 +230,18 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
         self.assertCodemod(
             before, after, self.logger_name, context_override=self.context
         )
+
+    def test_call_to_str_in_eprint_msg(self) -> None:
+        before = f"""
+            eprint(str(obj), "INFO")
+            """
+
+        after = f"""
+            import logging
+
+            {self.logger_name}.info(str(obj))
+            """
+
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
+        )

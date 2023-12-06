@@ -14,6 +14,7 @@ class CSTString:
     name: Optional[cst.Name] = None
     literal: Optional[cst.SimpleString] = None
     format_args: Optional[Tuple[cst.Arg]] = tuple()
+    computed_value: Optional[cst.Call] = None
 
 
 class RemoveLogfuncDefAndImports(CodemodBase):
@@ -260,6 +261,8 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             ):
                 ret.name = node.func.value
             return ret
+        elif m.matches(node, m.Call(func=m.Name("str"))):
+            return CSTString(computed_value=node)
         elif m.matches(node, m.Name()) and node.value in self._string_varnames:
             return CSTString(name=node)
         return None
@@ -477,6 +480,8 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         fmt = (
             msg.name
             if msg.name is not None
+            else msg.computed_value
+            if msg.computed_value is not None
             else cst.SimpleString(value=repr(msg.literal))
         )
 
