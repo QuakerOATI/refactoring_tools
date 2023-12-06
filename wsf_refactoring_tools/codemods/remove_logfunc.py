@@ -181,6 +181,15 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             required=False,
             default=["eprint"],
         )
+        parser.add_argument(
+            "--raise-strict",
+            dest="raise_strict",
+            metavar="RAISE_STRICT",
+            help="Strict mode (aggressively raise exceptions on errors)",
+            required=False,
+            type=bool,
+            default=True,
+        )
 
     @staticmethod
     def replace_logfunc(context: mod.CodemodContext, name: str) -> None:
@@ -200,6 +209,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         context: mod.CodemodContext,
         logger_name: str = "logger",
         logfuncs: List[str] = [],
+        raise_strict=True,
     ) -> None:
         """Constructor for ReplaceFuncWithLoggerCommand codemod.
 
@@ -217,6 +227,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         self._handled_exceptions = set()
         self._string_varnames = {}
         self._postprocess = set()
+        self._raise_strict = raise_strict
 
     def ensure_assigned_format_is_percent(self, node: cst.Name) -> None:
         if node.value in self._string_varnames:
@@ -291,9 +302,14 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         """Define logger at module scope, provided it's not already defined."""
         global_scope = self.get_metadata(cst.metadata.ScopeProvider, node)
         if self._logger_name in global_scope:
-            raise self.LogFuncReplaceException(
-                f"Module scope already contains the name {self._logger_name}"
-            )
+            if self._raise_strict:
+                raise self.LogFuncReplaceException(
+                    f"Module scope already contains the name {self._logger_name}"
+                )
+            else:
+                self.warn_at_node(
+                    node, f"Module scope already contains the name {self._logger_name}"
+                )
         else:
             AddGlobalStatements.add_global_statement(
                 self.context,
