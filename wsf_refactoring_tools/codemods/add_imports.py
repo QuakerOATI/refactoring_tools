@@ -15,7 +15,7 @@ class AddImportsCodemodCommand(mod.VisitorBasedCodemodCommand):
             required=False,
         )
 
-    def __init__(self, context: mod.CodemodCommand, imports: List[str]) -> None:
+    def __init__(self, context: mod.CodemodCommand, modules: List[str]) -> None:
         super().__init__(context)
         for module in modules:
             mod.visitors.AddImportsVisitor.add_needed_import(self.context, module)
