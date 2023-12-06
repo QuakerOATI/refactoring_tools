@@ -183,3 +183,31 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             self.assertCodemod(
                 before, "", self.logger_name, context_override=self.context
             )
+
+    def test_variable_format_postprocessed(self) -> None:
+        before = f"""
+            msg = {self.fmt}
+            eprint(msg.format("foo", "bar", "qux"), "INFO")
+            """
+
+        after = f"""
+            import logging
+
+            msg = {self.percent_fmt}
+            {self.logger_name}.info(msg, "foo", "bar", "qux")
+            """
+
+        self.assertCodemod(before, after, self.logger_name, context_override=self.context)
+
+    def test_nonformat_string_assignment_unchanged(self) -> None:
+        before = f"""
+            msg = {self.fmt}
+            eprint({self.fmt}.format("foo", "bar", "qux"), "INFO")
+            """
+
+        after = f"""
+            import logging
+
+            msg = {self.fmt}
+            logger.info({self.percent_fmt}, "foo", "bar", "qux")
+            """

@@ -193,7 +193,18 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
         self._logger_name = logger_name
         self._function_context = []
         self._handled_exceptions = set()
-        self._string_varnames = set()
+        self._string_varnames = {}
+        self._postprocess = set()
+
+    def ensure_assigned_format_is_percent(self, node: cst.Name) -> None:
+        if node.value in self._string_varnames:
+            map = self._string_varnames[node.value]
+            scope = self.get_metadata(meta.ScopeProvider, node)
+            while scope not in map:
+                parent = scope.parent
+                if scope is parent:
+                    self.raise_at_node(node, "Could not find scope of string variable definition")
+            self._postprocess.add(map[scope])
 
     def get_string_components(
         self, node: Union[cst.Name, cst.Call, cst.SimpleString]
@@ -262,18 +273,32 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                 f"{self._logger_name} = logging.getLogger(__name__)",
             )
 
+    @m.leave(m.Module())
+    def postprocess_assignment_nodes(self, module: cst.Module, updated: cst.Module) -> cst.Module:
+        def convert_format(node: cst.Assign) -> cst.Assign:
+            bracket_fmt = literal_eval(node.value.value)
+            percent_fmt = repr(bracket_fmt.replace("{}", "%s"))
+            return node.with_changes(value=node.value.with_changes(value=percent_fmt))
+
+        if self._postprocess:
+            for node in self._postprocess:
+                updated = updated.deep_replace(node, convert_format(node))
+        return updated
+
     @m.visit(m.FunctionDef())
     def push_function_onto_context(self, node: cst.FunctionDef) -> None:
         self._function_context.append(node)
 
-    @m.visit(
+    @m.leave(
         m.Assign(
             targets=[m.AssignTarget(target=m.Name()), m.ZeroOrMore(m.Name())],
             value=m.SimpleString(),
         )
     )
-    def record_string_assignment(self, node: cst.Assign) -> None:
-        self._string_varnames.add(node.targets[0].target.value)
+    def record_string_assignment(self, node: cst.Assign, updated: cst.Assign) -> cst.Assign:
+        scope = self.get_metadata(meta.ScopeProvider, node.targets[0].target)
+        self._string_varnames.setdefault(node.targets[0].target.value, {})[scope] = updated
+        return updated
 
     @m.leave(m.FunctionDef())
     def pop_function_context(
@@ -367,11 +392,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
 
         if msg.format_args:
             if msg.name is not None:
-                # TODO: Implement reassignment codemod and call here
-                self.raise_at_node(
-                    original,
-                    "Logfunc argument replacement not yet implemented for named string format args",
-                )
+                self.ensure_assigned_format_is_percent(msg.name)
             else:
                 # Simpleminded, but Good Enough for this use case
                 msg.literal = msg.literal.replace("{}", "%s")
