@@ -192,7 +192,9 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
 
     @staticmethod
     def _get_logger_funcnames_from_context(context: mod.CodemodContext) -> Set[str]:
-        return context.scratch.setdefault(ReplaceFuncWithLoggerCommand.CONTEXT_KEY, set())
+        return context.scratch.setdefault(
+            ReplaceFuncWithLoggerCommand.CONTEXT_KEY, set()
+        )
 
     def __init__(
         self,
@@ -207,7 +209,9 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             logger_name: name of logger object to use in replacement
         """
         super().__init__(context)
-        self._logfuncs = self._get_logger_funcnames_from_context(context).union(set(logfuncs))
+        self._logfuncs = self._get_logger_funcnames_from_context(context).union(
+            set(logfuncs)
+        )
         self._excs_in_logfunc_call = []
         self._logger_name = logger_name
         self._function_context = []
