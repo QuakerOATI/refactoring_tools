@@ -188,7 +188,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             help="Strict mode (aggressively raise exceptions on errors)",
             required=False,
             type=bool,
-            default=True,
+            default=False,
         )
 
     @staticmethod
