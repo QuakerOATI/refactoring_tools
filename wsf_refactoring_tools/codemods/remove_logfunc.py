@@ -179,7 +179,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             metavar="LOGFUNC",
             help="Name of custom log function to replace",
             required=False,
-            default="eprint",
+            default=["eprint"],
         )
 
     @staticmethod
