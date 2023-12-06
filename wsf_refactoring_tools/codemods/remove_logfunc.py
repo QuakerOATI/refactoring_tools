@@ -199,6 +199,9 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
     def ensure_assigned_format_is_percent(self, node: cst.Name) -> None:
         if node.value in self._string_varnames:
             map = self._string_varnames[node.value]
+            # map is None if no postprocessing is needed
+            if map is None:
+                return
             scope = self.get_metadata(meta.ScopeProvider, node)
             while scope not in map:
                 parent = scope.parent
@@ -256,7 +259,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
                 node, f"{unrecognized} unrecognized argument(s) found in logfunc call"
             )
         if msg is None or loglevel is None:
-            self.raise_at_node("Malformed logfunc call")
+            self.raise_at_node(node, "Malformed logfunc call")
         return loglevel, msg
 
     @m.visit(m.Module())
@@ -298,6 +301,21 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
     def record_string_assignment(self, node: cst.Assign, updated: cst.Assign) -> cst.Assign:
         scope = self.get_metadata(meta.ScopeProvider, node.targets[0].target)
         self._string_varnames.setdefault(node.targets[0].target.value, {})[scope] = updated
+        return updated
+
+    @m.leave(
+        m.Assign(
+            targets=[m.AssignTarget(target=m.Name()), m.ZeroOrMore(m.Name())],
+            value=m.Call(func=m.Attribute(attr=m.Name(value="format"))),
+        )
+    )
+    def record_template_string_assignment(self, node: cst.Assign, updated: cst.Assign) -> cst.Assign:
+        caller = node.value.func.value
+        if m.matches(caller, m.SimpleString()) or m.matches(caller, m.Name(value=m.MatchIfTrue(lambda value: value in self._string_varnames))):
+            scope = self.get_metadata(meta.ScopeProvider, node.targets[0].target)
+            # the string variable name has to be in self._string_varnames, but we associate it with None
+            # to ensure that no format correction (postprocessing) occurs
+            self._string_varnames.setdefault(node.targets[0].target.value, {})[scope] = None
         return updated
 
     @m.leave(m.FunctionDef())

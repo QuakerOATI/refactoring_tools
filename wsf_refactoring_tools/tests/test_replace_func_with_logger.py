@@ -211,3 +211,19 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             msg = {self.fmt}
             logger.info({self.percent_fmt}, "foo", "bar", "qux")
             """
+
+    def test_formatted_string_assignment(self) -> None:
+        before = f"""
+            msg = {self.fmt}.format("foo", "bar", "qux")
+            eprint(msg, "INFO")
+            """
+
+        after = f"""
+            import logging
+
+            msg = {self.fmt}.format("foo", "bar", "qux")
+            {self.logger_name}.info(msg)
+            """
+
+        self.assertCodemod(before, after, self.logger_name, context_override=self.context)
+
