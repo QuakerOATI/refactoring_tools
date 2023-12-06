@@ -197,7 +197,9 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             {self.logger_name}.info(msg, "foo", "bar", "qux")
             """
 
-        self.assertCodemod(before, after, self.logger_name, context_override=self.context)
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
+        )
 
     def test_nonformat_string_assignment_unchanged(self) -> None:
         before = f"""
@@ -225,5 +227,6 @@ class TestReplaceFuncWithLoggerCommand(CodemodTest):
             {self.logger_name}.info(msg)
             """
 
-        self.assertCodemod(before, after, self.logger_name, context_override=self.context)
-
+        self.assertCodemod(
+            before, after, self.logger_name, context_override=self.context
+        )

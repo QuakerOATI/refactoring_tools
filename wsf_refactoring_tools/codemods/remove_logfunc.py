@@ -206,7 +206,9 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             while scope not in map:
                 parent = scope.parent
                 if scope is parent:
-                    self.raise_at_node(node, "Could not find scope of string variable definition")
+                    self.raise_at_node(
+                        node, "Could not find scope of string variable definition"
+                    )
             self._postprocess.add(map[scope])
 
     def get_string_components(
@@ -277,7 +279,9 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             )
 
     @m.leave(m.Module())
-    def postprocess_assignment_nodes(self, module: cst.Module, updated: cst.Module) -> cst.Module:
+    def postprocess_assignment_nodes(
+        self, module: cst.Module, updated: cst.Module
+    ) -> cst.Module:
         def convert_format(node: cst.Assign) -> cst.Assign:
             bracket_fmt = literal_eval(node.value.value)
             percent_fmt = repr(bracket_fmt.replace("{}", "%s"))
@@ -298,9 +302,13 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             value=m.SimpleString(),
         )
     )
-    def record_string_assignment(self, node: cst.Assign, updated: cst.Assign) -> cst.Assign:
+    def record_string_assignment(
+        self, node: cst.Assign, updated: cst.Assign
+    ) -> cst.Assign:
         scope = self.get_metadata(meta.ScopeProvider, node.targets[0].target)
-        self._string_varnames.setdefault(node.targets[0].target.value, {})[scope] = updated
+        self._string_varnames.setdefault(node.targets[0].target.value, {})[
+            scope
+        ] = updated
         return updated
 
     @m.leave(
@@ -309,13 +317,20 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             value=m.Call(func=m.Attribute(attr=m.Name(value="format"))),
         )
     )
-    def record_template_string_assignment(self, node: cst.Assign, updated: cst.Assign) -> cst.Assign:
+    def record_template_string_assignment(
+        self, node: cst.Assign, updated: cst.Assign
+    ) -> cst.Assign:
         caller = node.value.func.value
-        if m.matches(caller, m.SimpleString()) or m.matches(caller, m.Name(value=m.MatchIfTrue(lambda value: value in self._string_varnames))):
+        if m.matches(caller, m.SimpleString()) or m.matches(
+            caller,
+            m.Name(value=m.MatchIfTrue(lambda value: value in self._string_varnames)),
+        ):
             scope = self.get_metadata(meta.ScopeProvider, node.targets[0].target)
             # the string variable name has to be in self._string_varnames, but we associate it with None
             # to ensure that no format correction (postprocessing) occurs
-            self._string_varnames.setdefault(node.targets[0].target.value, {})[scope] = None
+            self._string_varnames.setdefault(node.targets[0].target.value, {})[
+                scope
+            ] = None
         return updated
 
     @m.leave(m.FunctionDef())
