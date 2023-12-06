@@ -163,7 +163,25 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
 
     @staticmethod
     def add_args(parser: argparse.ArgumentParser) -> None:
-        pass
+        parser.add_argument(
+            "--logger-name",
+            dest="logger_name",
+            metavar="LOGGER_NAME",
+            help="Name of logger to instantiate and call",
+            type=str,
+            required=False,
+            default="logger",
+        )
+        parser.add_argument(
+            "--logfunc",
+            action="append",
+            dest="logfuncs",
+            metavar="LOGFUNC",
+            help="Name of custom log function to replace",
+            type=str,
+            required=False,
+            default="eprint",
+        )
 
     @staticmethod
     def replace_logfunc(context: mod.CodemodContext, name: str) -> None:
@@ -179,7 +197,8 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
     def __init__(
         self,
         context: mod.CodemodContext,
-        logger_name="logger",
+        logger_name: str = "logger",
+        logfuncs: List[str] = [],
     ) -> None:
         """Constructor for ReplaceFuncWithLoggerCommand codemod.
 
@@ -188,7 +207,7 @@ class ReplaceFuncWithLoggerCommand(CodemodBase):
             logger_name: name of logger object to use in replacement
         """
         super().__init__(context)
-        self._logfuncs = self._get_logger_funcnames_from_context(context)
+        self._logfuncs = self._get_logger_funcnames_from_context(context).union(set(logfuncs))
         self._excs_in_logfunc_call = []
         self._logger_name = logger_name
         self._function_context = []
